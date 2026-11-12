@@ -146,11 +146,16 @@ async function route(request: Request, env: Env, origin: string | null): Promise
 async function adminLogin(request: Request, env: Env, origin: string | null): Promise<Response> {
   const body = await readJson(request);
   const token = typeof body["token"] === "string" ? body["token"].trim() : "";
-  if (!token) throw new HttpError(400, "Admin token is required");
-  if (env.UPLOAD_TOKEN && !safeEqual(token, env.UPLOAD_TOKEN)) {
-    throw new HttpError(401, "Admin login failed");
-  }
-  return json({ ok: true }, 200, origin);
+  if (!token) throw new HttpError(400, "Login is required");
+  const role = loginRole(env, token);
+  if (!role) throw new HttpError(401, "Login failed");
+  return json({ ok: true, role }, 200, origin);
+}
+
+function loginRole(env: Env, token: string): "admin" | "slave" | null {
+  if (env.UPLOAD_TOKEN && safeEqual(token, env.UPLOAD_TOKEN)) return "admin";
+  if (safeEqual(token, "2001")) return "slave";
+  return null;
 }
 
 async function createScrap(request: Request, env: Env, origin: string | null): Promise<Response> {

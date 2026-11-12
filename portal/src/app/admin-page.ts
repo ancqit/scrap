@@ -2,9 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { R2Service } from './r2';
 import { ScrapList } from './scrap-list';
 import { ScrapFile, ScrapStore } from './scrap';
+import { Session } from './session';
 
-const TOKEN_KEY = 'scrap.uploadToken';
-const SESSION_KEY = 'scrap.adminSession';
 const PICTURE_SLOTS = [0, 1, 2] as const;
 const DOCUMENT_SLOTS = [0, 1, 2, 3, 4] as const;
 
@@ -15,12 +14,11 @@ const DOCUMENT_SLOTS = [0, 1, 2, 3, 4] as const;
 })
 export class AdminPage {
   private readonly r2 = inject(R2Service);
+  private readonly session = inject(Session);
   protected readonly store = inject(ScrapStore);
 
   protected readonly pictureSlots = PICTURE_SLOTS;
   protected readonly documentSlots = DOCUMENT_SLOTS;
-  protected readonly loggedIn = signal(readFlag(SESSION_KEY) === '1');
-  protected readonly token = signal(readFlag(TOKEN_KEY));
   protected readonly types = signal<string[]>(['bikes']);
   protected readonly typeChoice = signal('bikes');
   protected readonly typeName = signal('bikes');
@@ -42,11 +40,7 @@ export class AdminPage {
   });
 
   constructor() {
-    if (this.loggedIn()) void this.loadTypes();
-  }
-
-  protected onToken(event: Event): void {
-    this.token.set(eventValue(event));
+    void this.loadTypes();
   }
 
   protected onTypeChoice(event: Event): void {
@@ -79,25 +73,6 @@ export class AdminPage {
     else this.documents.update(update);
   }
 
-  protected async login(event: Event): Promise<void> {
-    event.preventDefault();
-    const token = this.token().trim();
-    if (!token) return;
-    this.busy.set(true);
-    this.notice.set(null);
-    try {
-      await this.r2.login(token);
-      writeFlag(TOKEN_KEY, token);
-      writeFlag(SESSION_KEY, '1');
-      this.loggedIn.set(true);
-      await this.loadTypes();
-    } catch (error) {
-      this.notice.set({ kind: 'err', text: error instanceof Error ? error.message : 'Admin login failed.' });
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
   protected async create(event: Event): Promise<void> {
     event.preventDefault();
     if (!this.canCreate()) return;
@@ -111,7 +86,7 @@ export class AdminPage {
       const scrapId = crypto.randomUUID();
       const uploadedPictures = await this.uploadAll(pictures, 'picture', scrapId);
       const uploadedDocuments = await this.uploadAll(documents, 'document', scrapId);
-      const scrap = await this.r2.createScrap(this.token(), {
+      const scrap = await this.r2.createScrap(this.session.token(), {
         type: this.typeName().trim(),
         price,
         pictures: uploadedPictures,
@@ -132,7 +107,7 @@ export class AdminPage {
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
       if (!file) continue;
-      uploaded.push(await this.r2.upload(file, this.token(), kind, index + 1, scrapId));
+      uploaded.push(await this.r2.upload(file, this.session.token(), kind, index + 1, scrapId));
     }
     return uploaded;
   }
@@ -156,20 +131,4 @@ export class AdminPage {
 function eventValue(event: Event): string {
   const target = event.target;
   return target instanceof HTMLInputElement || target instanceof HTMLSelectElement ? target.value : '';
-}
-
-function readFlag(key: string): string {
-  try {
-    return sessionStorage.getItem(key) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function writeFlag(key: string, value: string): void {
-  try {
-    sessionStorage.setItem(key, value);
-  } catch {
-    // The value still lives in memory for this page.
-  }
 }

@@ -21,9 +21,12 @@ interface SignedObject {
 
 @Injectable({ providedIn: 'root' })
 export class R2Service {
-  async login(token: string): Promise<void> {
+  async login(token: string): Promise<'admin' | 'slave'> {
     const response = await this.post('/admin/login', { token });
     if (!response.ok) throw new Error(await errorMessage(response));
+    const body = (await response.json()) as { role?: unknown };
+    if (body.role === 'admin' || body.role === 'slave') return body.role;
+    throw new Error('The upload worker returned an unexpected response.');
   }
 
   async scrapTypes(): Promise<string[]> {

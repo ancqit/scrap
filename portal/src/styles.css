@@ -78,9 +78,14 @@ nav {
   gap: 18px;
 }
 
-nav a {
+nav a,
+nav button {
   color: var(--muted);
   text-decoration: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
 
 nav a.active {

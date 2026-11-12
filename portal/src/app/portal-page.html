@@ -1,0 +1,7 @@
+@if (session.role() === 'admin') {
+  <app-admin-page />
+} @else if (session.role() === 'slave') {
+  <app-slave-page />
+} @else {
+  <app-login-form />
+}

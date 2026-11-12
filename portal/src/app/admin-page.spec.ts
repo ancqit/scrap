@@ -49,6 +49,8 @@ describe('AdminPage', () => {
   beforeEach(async () => {
     localStorage.clear();
     sessionStorage.clear();
+    sessionStorage.setItem('scrap.role', 'admin');
+    sessionStorage.setItem('scrap.uploadToken', 'desk-token');
     r2.login.mockClear();
     r2.upload.mockClear();
     r2.createScrap.mockClear();
@@ -63,14 +65,7 @@ describe('AdminPage', () => {
     const fixture = TestBed.createComponent(AdminPage);
     await fixture.whenStable();
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('select[name="scrap-type"]')).toBeNull();
     expect(root.textContent).not.toContain('1001');
-
-    const token = root.querySelector('input[name="token"]') as HTMLInputElement;
-    token.value = 'desk-token';
-    token.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    (root.querySelector('button[type="submit"]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(root.querySelector('select[name="scrap-type"]')).toBeTruthy());
 
     const select = root.querySelector('select[name="scrap-type"]') as HTMLSelectElement;
@@ -113,11 +108,6 @@ describe('AdminPage', () => {
     const fixture = TestBed.createComponent(AdminPage);
     await fixture.whenStable();
     const root = fixture.nativeElement as HTMLElement;
-    const token = root.querySelector('input[name="token"]') as HTMLInputElement;
-    token.value = 'desk-token';
-    token.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    (root.querySelector('button[type="submit"]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(root.querySelector('fieldset.section')).toBeTruthy());
 
     const price = root.querySelector('input[name="price"]') as HTMLInputElement;

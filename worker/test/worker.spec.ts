@@ -198,6 +198,16 @@ describe("presign worker", () => {
       UPLOAD_TOKEN: "desk-token",
     });
     expect(loggedIn.status).toBe(200);
+    expect(await loggedIn.json()).toEqual({ ok: true, role: "admin" });
+
+    const slave = await worker.fetch(post("/admin/login", { token: "2001" }), {
+      ...env,
+      UPLOAD_TOKEN: "desk-token",
+    });
+    expect(await slave.json()).toEqual({ ok: true, role: "slave" });
+
+    const open = await worker.fetch(post("/admin/login", { token: "anyone" }), env);
+    expect(open.status).toBe(401);
 
     const created = await worker.fetch(
       post(

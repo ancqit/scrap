@@ -1,21 +1,6 @@
 <section>
   <h1>Admin</h1>
-
-  @if (!loggedIn()) {
-    <p class="hint">Log in to add a scrap. The card shows on the slave portal.</p>
-    <form class="form" (submit)="login($event)">
-      <label>
-        Admin token
-        <input name="token" type="password" autocomplete="off" [value]="token()" (input)="onToken($event)" />
-      </label>
-      <p class="hint">Use the worker upload token. Any token works while that secret is unset.</p>
-      <button type="submit" [disabled]="busy() || token().trim().length === 0">Log in</button>
-      @if (notice(); as note) {
-        <p [class]="note.kind" role="status">{{ note.text }}</p>
-      }
-    </form>
-  } @else {
-    <p class="hint">Fill the scrap section or the documents section. One of them is required. Pick bikes, or type another scrap.</p>
+  <p class="hint">Fill the scrap section or the documents section. One of them is required. Pick bikes, or type another scrap.</p>
     <form class="form" (submit)="create($event)">
       <label>
         Known types
@@ -79,5 +64,4 @@
 
     <app-scrap-list [removable]="true" />
     <p class="hint">Delete removes the card and its files from the bucket.</p>
-  }
 </section>
