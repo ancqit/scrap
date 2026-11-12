@@ -170,13 +170,45 @@ nav a.active {
   overflow-wrap: anywhere;
 }
 
+.pictures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
 .card img,
 .frame {
   width: 100%;
-  height: 180px;
+  height: 96px;
   object-fit: cover;
   background: #ece6da;
   margin: 0;
+}
+
+.frame {
+  overflow: hidden;
+  padding: 8px;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.price {
+  margin: 0;
+  font-weight: 600;
+}
+
+.docs {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.form select {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  padding: 8px 10px;
+  font: inherit;
 }
 
 .frame {

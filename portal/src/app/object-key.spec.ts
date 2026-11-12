@@ -1,7 +1,9 @@
-import { scrapObjectKey } from './object-key';
+import { scrapFileKey } from './object-key';
 
-describe('scrapObjectKey', () => {
+describe('scrapFileKey', () => {
   it('drops path segments and odd characters from the file name', () => {
-    expect(scrapObjectKey('../Album/My Photo.JPG', 'abc')).toBe('scraps/abc-my-photo.jpg');
+    expect(scrapFileKey('pictures', 1, '../Album/My Photo.JPG', 'abc')).toBe(
+      'scraps/abc/pictures/1-my-photo.jpg',
+    );
   });
 });

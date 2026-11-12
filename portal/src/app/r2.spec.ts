@@ -31,7 +31,7 @@ describe('R2Service', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'Photo.JPG', { type: 'image/jpeg' });
     const stored = await service.upload(file, 'desk-token');
 
-    expect(stored.key).toBe('2001/scraps/a.jpg');
+    expect(stored.objectKey).toBe('2001/scraps/a.jpg');
     expect(calls[0]?.url).toBe(`${WORKER_URL}/get-upload-url`);
     expect(calls[0]?.init?.method).toBe('POST');
     expect(new Headers(calls[0]?.init?.headers).get('authorization')).toBe('Bearer desk-token');

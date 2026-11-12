@@ -1,12 +1,22 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { R2Service } from './r2';
 import { SLAVE_PORTAL } from './portal-number';
+
+export interface ScrapFile {
+  objectKey: string;
+  url: string;
+  contentType: string;
+  filename: string;
+}
 
 export interface Scrap {
   id: string;
-  title: string;
+  type: string;
+  price: number;
+  currency: 'INR';
   portal: typeof SLAVE_PORTAL;
-  key: string;
-  contentType: string;
+  pictures: ScrapFile[];
+  documents: ScrapFile[];
   createdAt: string;
 }
 
@@ -14,11 +24,22 @@ const STORAGE_KEY = 'scrap.store.v1';
 
 @Injectable({ providedIn: 'root' })
 export class ScrapStore {
+  private readonly r2 = inject(R2Service);
   private readonly scraps = signal<Scrap[]>(readScraps());
   readonly items = this.scraps.asReadonly();
 
+  async refresh(): Promise<void> {
+    try {
+      const items = await this.r2.listScraps();
+      this.scraps.set(items);
+      this.persist();
+    } catch {
+      // Keep the last catalog when the worker is down.
+    }
+  }
+
   add(scrap: Scrap): void {
-    this.scraps.update((items) => [scrap, ...items]);
+    this.scraps.update((items) => [scrap, ...items.filter((item) => item.id !== scrap.id)]);
     this.persist();
   }
 
@@ -53,11 +74,12 @@ function isScrap(value: unknown): value is Scrap {
   const scrap = value as Record<string, unknown>;
   return (
     typeof scrap['id'] === 'string' &&
-    typeof scrap['title'] === 'string' &&
+    typeof scrap['type'] === 'string' &&
+    typeof scrap['price'] === 'number' &&
+    scrap['currency'] === 'INR' &&
     scrap['portal'] === SLAVE_PORTAL &&
-    typeof scrap['key'] === 'string' &&
-    scrap['key'].startsWith(`${SLAVE_PORTAL}/`) &&
-    typeof scrap['contentType'] === 'string' &&
-    typeof scrap['createdAt'] === 'string'
+    Array.isArray(scrap['pictures']) &&
+    scrap['pictures'].length === 3 &&
+    Array.isArray(scrap['documents'])
   );
 }

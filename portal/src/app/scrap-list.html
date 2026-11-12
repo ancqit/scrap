@@ -3,7 +3,7 @@
 } @else {
   <div class="grid">
     @for (scrap of store.items(); track scrap.id) {
-      <app-scrap-card [scrap]="scrap" [removable]="removable()" (removed)="store.remove($event)" />
+      <app-scrap-card [scrap]="scrap" [removable]="removable()" (removed)="onRemove($event)" />
     }
   </div>
 }

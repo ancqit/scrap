@@ -1,4 +1,16 @@
 import { AwsClient } from "aws4fetch";
+import {
+  CatalogError,
+  DOCUMENT_SLOTS,
+  PICTURE_SLOTS,
+  addScrap,
+  listScraps,
+  removeScrap,
+  scrapFromBody,
+  scrapTypes,
+  type ScrapFile,
+  type StoredScrap,
+} from "./catalog";
 import { KeyError, toPublicObjectKey } from "./keys";
 
 export interface Env {
@@ -9,6 +21,8 @@ export interface Env {
   ALLOWED_ORIGIN: string;
   /** https origin of the bucket's custom domain. Public reads use this instead of a signed GET. */
   PUBLIC_BASE_URL?: string;
+  /** S3 endpoint. Defaults to https://<ACCOUNT_ID>.r2.cloudflarestorage.com. */
+  R2_ENDPOINT?: string;
   /**
    * When set, POST /get-upload-url requires Authorization: Bearer <token>.
    * Leave unset only for local wrangler dev. Set it before a public deploy.
@@ -17,14 +31,10 @@ export interface Env {
 }
 
 const EXPIRES_SECONDS = 3600;
-const MAX_BODY_CHARS = 4096;
+const MAX_BODY_CHARS = 16_384;
 
-const ALLOWED_CONTENT_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-]);
+const PICTURE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const DOCUMENT_TYPES = new Set([...PICTURE_TYPES, "application/pdf"]);
 
 class HttpError extends Error {
   constructor(
@@ -50,7 +60,9 @@ export default {
       return await route(request, env, origin);
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.message }, error.status, origin);
-      if (error instanceof KeyError) return json({ error: error.message }, 400, origin);
+      if (error instanceof KeyError || error instanceof CatalogError) {
+        return json({ error: error.message }, 400, origin);
+      }
       console.error("presign failed");
       return json({ error: "Could not sign the request" }, 500, origin);
     }
@@ -61,16 +73,81 @@ async function route(request: Request, env: Env, origin: string | null): Promise
   const path = normalizePath(new URL(request.url).pathname);
 
   if (request.method === "GET" && (path === "/" || path === "/health")) {
-    return json({ ok: true, uploadProtected: Boolean(env.UPLOAD_TOKEN) }, 200, origin);
+    return json(
+      { ok: true, uploadProtected: Boolean(env.UPLOAD_TOKEN), bucket: env.BUCKET, pictures: PICTURE_SLOTS, documents: DOCUMENT_SLOTS },
+      200,
+      origin,
+    );
+  }
+
+  if (request.method === "GET" && path === "/scraps") return json(await publicCatalog(env), 200, origin);
+  if (request.method === "GET" && path === "/scrap-types") {
+    return json({ types: scrapTypes() }, 200, origin);
+  }
+  if (request.method === "DELETE" && path.startsWith("/scraps/")) {
+    assertUploadToken(request, env);
+    const id = decodeURIComponent(path.slice("/scraps/".length));
+    if (!id || !removeScrap(id)) return json({ error: "Scrap not found" }, 404, origin);
+    return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
 
   if (request.method !== "POST") {
-    return json({ error: "Method not allowed" }, 405, origin, { allow: "GET, POST, OPTIONS" });
+    return json({ error: "Method not allowed" }, 405, origin, { allow: "GET, POST, DELETE, OPTIONS" });
   }
 
+  if (path === "/admin/login") return adminLogin(request, env, origin);
   if (path === "/get-upload-url") return uploadUrl(request, env, origin);
   if (path === "/get-download-url") return downloadUrl(request, env, origin);
+  if (path === "/scraps") return createScrap(request, env, origin);
   return json({ error: "Not found" }, 404, origin);
+}
+
+async function adminLogin(request: Request, env: Env, origin: string | null): Promise<Response> {
+  const body = await readJson(request);
+  const token = typeof body["token"] === "string" ? body["token"].trim() : "";
+  if (!token) throw new HttpError(400, "Admin token is required");
+  if (env.UPLOAD_TOKEN && !safeEqual(token, env.UPLOAD_TOKEN)) {
+    throw new HttpError(401, "Admin login failed");
+  }
+  return json({ ok: true }, 200, origin);
+}
+
+async function createScrap(request: Request, env: Env, origin: string | null): Promise<Response> {
+  assertConfigured(env);
+  assertUploadToken(request, env);
+  const scrap = addScrap(scrapFromBody(await readJson(request)));
+  return json({ scrap: await presentScrap(env, scrap) }, 201, origin);
+}
+
+async function publicCatalog(env: Env): Promise<{ scraps: Record<string, unknown>[] }> {
+  assertConfigured(env);
+  const scraps = await Promise.all(listScraps().map((scrap) => presentScrap(env, scrap)));
+  return { scraps };
+}
+
+async function presentScrap(env: Env, scrap: StoredScrap): Promise<Record<string, unknown>> {
+  return {
+    id: scrap.id,
+    type: scrap.type,
+    price: scrap.price,
+    currency: scrap.currency,
+    portal: "2001",
+    pictures: await Promise.all(scrap.pictures.map((file) => presentFile(env, file))),
+    documents: await Promise.all(scrap.documents.map((file) => presentFile(env, file))),
+    created_at: scrap.createdAt,
+  };
+}
+
+async function presentFile(env: Env, file: ScrapFile): Promise<Record<string, unknown>> {
+  const url = env.PUBLIC_BASE_URL
+    ? cdnUrl(env.PUBLIC_BASE_URL, file.objectKey)
+    : (await presign(env, "GET", file.objectKey)).url;
+  return {
+    object_key: file.objectKey,
+    url,
+    content_type: file.contentType,
+    filename: file.filename,
+  };
 }
 
 async function uploadUrl(request: Request, env: Env, origin: string | null): Promise<Response> {
@@ -78,24 +155,46 @@ async function uploadUrl(request: Request, env: Env, origin: string | null): Pro
   assertUploadToken(request, env);
 
   const body = await readJson(request);
-  const contentType = body["contentType"];
-  if (typeof contentType !== "string" || !ALLOWED_CONTENT_TYPES.has(contentType)) {
-    throw new HttpError(400, "contentType must be image/jpeg, image/png, image/webp, or image/gif");
-  }
-
-  const key = toPublicObjectKey(body["key"]);
+  const kind = body["kind"] === "document" ? "document" : "picture";
+  const contentType = normalizeContentType(kind, body["contentType"] ?? body["content_type"]);
+  const key = toPublicObjectKey(body["key"] ?? body["object_key"]);
   const signed = await presign(env, "PUT", key, contentType);
+  const publicUrl = env.PUBLIC_BASE_URL ? cdnUrl(env.PUBLIC_BASE_URL, key) : "";
   return json(
     {
+      object_key: key,
+      upload_url: signed.url,
+      public_url: publicUrl,
+      content_type: contentType,
+      expires_in: EXPIRES_SECONDS,
+      kind,
+      upload_method: "PUT",
+      headers: signed.headers,
       url: signed.url,
       key,
       method: "PUT",
-      headers: signed.headers,
       expiresIn: EXPIRES_SECONDS,
     },
     200,
     origin,
   );
+}
+
+function normalizeContentType(kind: "picture" | "document", raw: unknown): string {
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "contentType is required");
+  }
+  const contentType = raw.split(";")[0]?.trim().toLowerCase() ?? "";
+  const allowed = kind === "document" ? DOCUMENT_TYPES : PICTURE_TYPES;
+  if (!allowed.has(contentType)) {
+    throw new HttpError(
+      400,
+      kind === "document"
+        ? "Documents must be PDF, JPEG, PNG, WebP, or GIF"
+        : "Pictures must be JPEG, PNG, WebP, or GIF",
+    );
+  }
+  return contentType;
 }
 
 async function downloadUrl(request: Request, env: Env, origin: string | null): Promise<Response> {
@@ -188,7 +287,11 @@ function clientHeaders(signed: Request, contentType?: string): Record<string, st
 }
 
 function objectUrl(env: Env, key: string): URL {
-  const url = new URL(`https://${env.ACCOUNT_ID}.r2.cloudflarestorage.com`);
+  const endpoint = (env.R2_ENDPOINT || `https://${env.ACCOUNT_ID}.r2.cloudflarestorage.com`).replace(/\/$/, "");
+  const url = new URL(endpoint);
+  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/") {
+    throw new HttpError(500, "R2_ENDPOINT is not configured");
+  }
   url.pathname = `/${env.BUCKET}/${encodeKey(key)}`;
   return url;
 }
@@ -251,7 +354,7 @@ function corsHeaders(origin: string | null): Headers {
     headers.set("access-control-allow-origin", origin);
     headers.set("vary", "Origin");
   }
-  headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
+  headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
   headers.set("access-control-allow-headers", "Content-Type, Authorization");
   headers.set("access-control-max-age", "86400");
   return headers;
