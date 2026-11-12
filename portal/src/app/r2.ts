@@ -68,14 +68,15 @@ export class R2Service {
       throw new Error('The upload worker returned an unexpected key.');
     }
 
+    const uploadUrl = throughProxy(signed.url);
     const headers = new Headers(signed.headers ?? { 'Content-Type': file.type });
-    if (token && signed.url.startsWith(WORKER_URL)) {
+    if (token && uploadUrl.startsWith(WORKER_URL)) {
       headers.set('Authorization', `Bearer ${token}`);
     }
 
     let put: Response;
     try {
-      put = await fetch(signed.url, {
+      put = await fetch(uploadUrl, {
         method: 'PUT',
         headers,
         body: file,
@@ -210,12 +211,25 @@ function asFiles(value: unknown): ScrapFile[] {
     return [
       {
         objectKey: record['object_key'],
-        url: record['url'],
+        url: throughProxy(record['url']),
         contentType: typeof record['content_type'] === 'string' ? record['content_type'] : '',
         filename: typeof record['filename'] === 'string' ? record['filename'] : 'file',
       },
     ];
   });
+}
+
+function throughProxy(url: string): string {
+  if (url.startsWith(WORKER_URL)) return url;
+  try {
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith('/r2/')) {
+      return `${WORKER_URL}${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    return url;
+  }
+  return url;
 }
 
 async function errorMessage(response: Response): Promise<string> {

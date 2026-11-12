@@ -6,7 +6,11 @@
   "framework": null,
   "rewrites": [
     {
-      "source": "/((?!.*\\.).*)",
+      "source": "/api/:path*",
+      "destination": "https://scrap-r2-presign.ancqit.workers.dev/:path*"
+    },
+    {
+      "source": "/((?!api/)(?!.*\\.).*)",
       "destination": "/index.html"
     }
   ]
