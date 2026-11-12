@@ -1,0 +1,43 @@
+<section>
+  <h1>Admin</h1>
+  <p class="hint">Fill the portal number, then upload. Object keys use that number.</p>
+
+  <form class="form" (submit)="upload($event)">
+    <app-portal-number-field (filled)="portal.set($event)" />
+
+    <label>
+      Title
+      <input name="title" [value]="title()" (input)="onTitle($event)" maxlength="80" />
+    </label>
+
+    <label>
+      Image
+      <input
+        #fileInput
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        (change)="onFile($event)"
+      />
+    </label>
+
+    <label>
+      Upload token
+      <input
+        name="token"
+        type="password"
+        autocomplete="off"
+        [value]="token()"
+        (input)="onToken($event)"
+      />
+    </label>
+    <p class="hint">Leave this empty for local wrangler. Set it when the worker has UPLOAD_TOKEN.</p>
+
+    <button type="submit" [disabled]="!canUpload()">Upload</button>
+    @if (notice(); as note) {
+      <p [class]="note.kind" role="status">{{ note.text }}</p>
+    }
+  </form>
+
+  <app-scrap-list [removable]="true" />
+  <p class="hint">Remove drops the scrap from this browser. The object stays in the bucket.</p>
+</section>

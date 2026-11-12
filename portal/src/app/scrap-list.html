@@ -1,0 +1,9 @@
+@if (store.items().length === 0) {
+  <p class="empty">No scraps yet.</p>
+} @else {
+  <div class="grid">
+    @for (scrap of store.items(); track scrap.id) {
+      <app-scrap-card [scrap]="scrap" [removable]="removable()" (removed)="store.remove($event)" />
+    }
+  </div>
+}

@@ -1,0 +1,15 @@
+<article class="card">
+  @if (imageUrl(); as url) {
+    <img [src]="url" [alt]="scrap().title" />
+  } @else if (imageError()) {
+    <p class="frame">Image unavailable</p>
+  } @else {
+    <p class="frame">Loading image…</p>
+  }
+  <h2>{{ scrap().title }}</h2>
+  <p class="meta">Portal {{ scrap().portal }}</p>
+  <time [attr.datetime]="scrap().createdAt">{{ scrap().createdAt | date: 'medium' }}</time>
+  @if (removable()) {
+    <button type="button" (click)="removed.emit(scrap().id)">Remove</button>
+  }
+</article>
