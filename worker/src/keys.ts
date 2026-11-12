@@ -35,10 +35,14 @@ export function toPublicObjectKey(raw: unknown): string {
     throw new KeyError("invalid key");
   }
 
+  if (segments[0] === "shorts") throw new KeyError("invalid key");
   if (segments[0] === ADMIN_PORTAL) segments[0] = SLAVE_PORTAL;
   else if (segments[0] !== SLAVE_PORTAL) segments.unshift(SLAVE_PORTAL);
 
-  if (segments.length < 2 || segments.includes(ADMIN_PORTAL)) throw new KeyError("invalid key");
+  // junctionBack owns the shorts/ prefix in this bucket. Scrap stays under 2001/.
+  if (segments.length < 2 || segments.includes(ADMIN_PORTAL) || segments[1] === "shorts") {
+    throw new KeyError("invalid key");
+  }
 
   const key = segments.join("/");
   if (key.length > MAX_KEY_LENGTH) throw new KeyError("key is too long");

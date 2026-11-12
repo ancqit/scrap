@@ -30,7 +30,7 @@ export interface Env {
    * Leave unset only for local wrangler dev. Set it before a public deploy.
    */
   UPLOAD_TOKEN?: string;
-  /** Existing R2 bucket `scrap`. Writes and reads go here when the binding is present. */
+  /** junctionBack's R2 bucket, `junction-shorts`. Writes and reads go here when the binding is present. */
   SCRAP?: ScrapBucket;
 }
 
@@ -38,7 +38,7 @@ export interface ScrapBucket {
   put(
     key: string,
     value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
-    options?: { httpMetadata?: { contentType?: string } },
+    options?: { httpMetadata?: { contentType?: string; cacheControl?: string } },
   ): Promise<unknown>;
   get(key: string): Promise<ScrapObject | null>;
 }
@@ -268,7 +268,9 @@ async function writeObject(request: Request, env: Env, origin: string | null, pa
   const limit = contentType === "application/pdf" ? DOCUMENT_BYTES : PICTURE_BYTES;
   if (bytes.byteLength === 0) throw new HttpError(400, "The file is empty");
   if (bytes.byteLength > limit) throw new HttpError(413, "The file is too large");
-  await env.SCRAP.put(key, bytes, { httpMetadata: { contentType } });
+  await env.SCRAP.put(key, bytes, {
+    httpMetadata: { contentType, cacheControl: "public, max-age=31536000, immutable" },
+  });
   return new Response(null, { status: 200, headers: corsHeaders(origin) });
 }
 
@@ -313,7 +315,7 @@ async function hydrate(env: Env): Promise<void> {
 async function persist(env: Env): Promise<void> {
   if (!env.SCRAP) return;
   await env.SCRAP.put(CATALOG_KEY, JSON.stringify(listScraps()), {
-    httpMetadata: { contentType: "application/json" },
+    httpMetadata: { contentType: "application/json", cacheControl: "no-store" },
   });
 }
 
@@ -510,7 +512,10 @@ function resolveOrigin(request: Request, allowed: string): string | null | "deny
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  return list.includes(origin) ? origin : "deny";
+  if (list.includes(origin)) return origin;
+  // Preview and production hosts, same allowance junctionBack gives *.vercel.app.
+  if (/^https:\/\/(?:[a-z0-9-]+\.)+vercel\.app$/.test(origin)) return origin;
+  return "deny";
 }
 
 function corsHeaders(origin: string | null): Headers {

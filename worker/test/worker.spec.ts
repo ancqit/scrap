@@ -6,7 +6,7 @@ const env: Env = {
   R2_ACCESS_KEY_ID: "test-access-key",
   R2_SECRET_ACCESS_KEY: "test-secret-value",
   ACCOUNT_ID: "f1d24d5e867a3d29f557db38d7fe5aab",
-  BUCKET: "scrap",
+  BUCKET: "junction-shorts",
   ALLOWED_ORIGIN: "http://localhost:4200,http://127.0.0.1:4200",
 };
 
@@ -110,6 +110,15 @@ describe("presign worker", () => {
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
   });
 
+  it("allows a Vercel portal origin", async () => {
+    const response = await worker.fetch(
+      post("/get-upload-url", { key: "scraps/a.jpg", contentType: "image/png" }, { origin: "https://scrap.vercel.app" }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://scrap.vercel.app");
+  });
+
   it("answers CORS preflight for the portal origin", async () => {
     const response = await worker.fetch(
       new Request("https://worker.test/get-upload-url", {
@@ -164,7 +173,7 @@ describe("presign worker", () => {
     expect(await open.json()).toEqual({
       ok: true,
       uploadProtected: false,
-      bucket: "scrap",
+      bucket: "junction-shorts",
       storage: "s3",
       pictures: 3,
       documents: 5,
@@ -297,7 +306,14 @@ describe("presign worker", () => {
     expect(catalog.scraps[0]?.pictures[0]?.url).toBe("https://worker.test/r2/2001/scraps/one.jpg");
 
     const health = await worker.fetch(new Request("https://worker.test/health"), bound);
-    expect(await health.json()).toMatchObject({ bucket: "scrap", storage: "bucket" });
+    expect(await health.json()).toMatchObject({ bucket: "junction-shorts", storage: "bucket" });
+
+    const onCdn = await worker.fetch(new Request("https://worker.test/scraps"), {
+      ...bound,
+      PUBLIC_BASE_URL: "https://media.junction.monster",
+    });
+    const cdn = (await onCdn.json()) as { scraps: { pictures: { url: string }[] }[] };
+    expect(cdn.scraps[0]?.pictures[0]?.url).toBe("https://media.junction.monster/2001/scraps/one.jpg");
   });
 
   it("rejects a scrap that does not have 3 pictures", async () => {

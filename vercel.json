@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install --prefix portal",
+  "buildCommand": "npm run build --prefix portal",
+  "outputDirectory": "portal/dist/portal/browser",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/((?!.*\\.).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
