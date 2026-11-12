@@ -1,17 +1,16 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install --prefix portal && npm install --prefix worker",
+  "installCommand": "npm install --prefix portal",
   "buildCommand": "npm run build --prefix portal",
   "outputDirectory": "portal/dist/portal/browser",
   "framework": null,
-  "functions": {
-    "api/**/*.ts": {
-      "maxDuration": 30
-    }
-  },
   "rewrites": [
     {
-      "source": "/((?!api/)(?!.*\\.).*)",
+      "source": "/api/(.*)",
+      "destination": "https://junctionback.onrender.com/$1"
+    },
+    {
+      "source": "/((?!.*\\.).*)",
       "destination": "/index.html"
     }
   ]

@@ -1,7 +1,7 @@
 {
   "/api": {
-    "target": "http://127.0.0.1:8787",
-    "secure": false,
+    "target": "https://junctionback.onrender.com",
+    "secure": true,
     "changeOrigin": true,
     "pathRewrite": {
       "^/api": ""

@@ -1,10 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { R2Service } from './r2';
-import { WORKER_URL } from './worker-url';
+import { API_URL } from './api-base';
 
 describe('R2Service', () => {
-  it('shows the worker error when the bucket response is plain text', async () => {
+  it('shows a plain service error', async () => {
     vi.stubGlobal(
       'fetch',
       () => Promise.resolve(new Response('error code: 1042', { status: 404, headers: { 'content-type': 'text/plain' } })),
@@ -17,7 +17,7 @@ describe('R2Service', () => {
     vi.unstubAllGlobals();
   });
 
-  it('asks the worker for a signed url and puts the file straight to that url', async () => {
+  it('asks junctionBack for a signed url and puts the file straight to that url', async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
       calls.push({ url, init });
@@ -41,7 +41,7 @@ describe('R2Service', () => {
     const stored = await service.upload(file, 'desk-token');
 
     expect(stored.objectKey).toBe('2001/scraps/a.jpg');
-    expect(calls[0]?.url).toBe(`${WORKER_URL}/get-upload-url`);
+    expect(calls[0]?.url).toBe(`${API_URL}/scrap/get-upload-url`);
     expect(calls[0]?.init?.method).toBe('POST');
     expect(new Headers(calls[0]?.init?.headers).get('authorization')).toBe('Bearer desk-token');
     expect(String(calls[0]?.init?.body)).not.toContain('test-secret');
@@ -51,7 +51,7 @@ describe('R2Service', () => {
     expect(new Headers(calls[1]?.init?.headers).get('authorization')).toBeNull();
   });
 
-  it('sends the admin token when the upload url is the worker bucket route', async () => {
+  it('sends the admin token when the upload url is on this host', async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
       calls.push({ url, init });
@@ -59,7 +59,7 @@ describe('R2Service', () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              upload_url: `${WORKER_URL}/r2/2001/scraps/a.jpg`,
+              upload_url: `${API_URL}/r2/2001/scraps/a.jpg`,
               object_key: '2001/scraps/a.jpg',
               headers: { 'content-type': 'image/jpeg' },
               content_type: 'image/jpeg',
@@ -75,7 +75,7 @@ describe('R2Service', () => {
     const file = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
     await service.upload(file, 'desk-token');
 
-    expect(calls[1]?.url).toBe(`${WORKER_URL}/r2/2001/scraps/a.jpg`);
+    expect(calls[1]?.url).toBe(`${API_URL}/r2/2001/scraps/a.jpg`);
     expect(new Headers(calls[1]?.init?.headers).get('authorization')).toBe('Bearer desk-token');
     expect(new Headers(calls[1]?.init?.headers).get('content-type')).toBe('image/jpeg');
   });
@@ -104,12 +104,12 @@ describe('R2Service', () => {
     const file = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
     await service.upload(file, 'desk-token');
 
-    expect(calls[0]?.url).toBe('/api/get-upload-url');
+    expect(calls[0]?.url).toBe('/api/scrap/get-upload-url');
     expect(calls[1]?.url).toBe('/api/r2/2001/scraps/a.jpg');
     expect(new Headers(calls[1]?.init?.headers).get('authorization')).toBe('Bearer desk-token');
   });
 
-  it('refuses a file that is not an image before calling the worker', async () => {
+  it('refuses a file that is not an image before calling junctionBack', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const service = TestBed.inject(R2Service);

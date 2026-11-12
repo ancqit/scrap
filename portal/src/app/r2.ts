@@ -8,7 +8,7 @@ import {
 } from './object-key';
 import { SLAVE_PORTAL } from './portal-number';
 import type { Scrap, ScrapFile } from './scrap';
-import { WORKER_URL } from './worker-url';
+import { API_URL } from './api-base';
 
 type UploadKind = 'picture' | 'document';
 
@@ -22,15 +22,15 @@ interface SignedObject {
 @Injectable({ providedIn: 'root' })
 export class R2Service {
   async login(token: string): Promise<'admin' | 'slave'> {
-    const response = await this.post('/admin/login', { token });
+    const response = await this.post('/scrap/login', { token });
     if (!response.ok) throw new Error(await errorMessage(response));
     const body = (await response.json()) as { role?: unknown };
     if (body.role === 'admin' || body.role === 'slave') return body.role;
-    throw new Error('The upload worker returned an unexpected response.');
+    throw new Error('The scrap service returned an unexpected response.');
   }
 
   async scrapTypes(): Promise<string[]> {
-    const response = await this.post('/scrap-types', undefined, 'GET');
+    const response = await this.post('/scrap/types', undefined, 'GET');
     if (!response.ok) throw new Error(await errorMessage(response));
     const body = (await response.json()) as { types?: unknown };
     if (!Array.isArray(body.types)) return ['bikes'];
@@ -56,7 +56,7 @@ export class R2Service {
     }
 
     const signed = await this.sign(
-      '/get-upload-url',
+      '/scrap/get-upload-url',
       {
         key: scrapFileKey(picture ? 'pictures' : 'documents', slot, file.name, scrapId || crypto.randomUUID()),
         contentType: file.type,
@@ -65,12 +65,12 @@ export class R2Service {
       token,
     );
     if (!signed.key.startsWith(`${SLAVE_PORTAL}/`)) {
-      throw new Error('The upload worker returned an unexpected key.');
+      throw new Error('The scrap service returned an unexpected key.');
     }
 
     const uploadUrl = throughProxy(signed.url);
     const headers = new Headers(signed.headers ?? { 'Content-Type': file.type });
-    if (token && uploadUrl.startsWith(WORKER_URL)) {
+    if (token && uploadUrl.startsWith(API_URL)) {
       headers.set('Authorization', `Bearer ${token}`);
     }
 
@@ -98,7 +98,7 @@ export class R2Service {
     draft: { type: string; price: number; pictures: ScrapFile[]; documents: ScrapFile[] },
   ): Promise<Scrap> {
     const response = await this.post(
-      '/scraps',
+      '/scrap/scraps',
       {
         type: draft.type,
         price: draft.price,
@@ -111,12 +111,12 @@ export class R2Service {
     if (!response.ok) throw new Error(await errorMessage(response));
     const body = (await response.json()) as { scrap?: unknown };
     const scrap = asScrap(body.scrap);
-    if (!scrap) throw new Error('The upload worker returned an unexpected response.');
+    if (!scrap) throw new Error('The scrap service returned an unexpected response.');
     return scrap;
   }
 
   async listScraps(): Promise<Scrap[]> {
-    const response = await this.post('/scraps', undefined, 'GET');
+    const response = await this.post('/scrap/scraps', undefined, 'GET');
     if (!response.ok) throw new Error(await errorMessage(response));
     const body = (await response.json()) as { scraps?: unknown };
     if (!Array.isArray(body.scraps)) return [];
@@ -127,7 +127,7 @@ export class R2Service {
   }
 
   async deleteScrap(id: string, token: string): Promise<void> {
-    const response = await this.post(`/scraps/${encodeURIComponent(id)}`, undefined, 'DELETE', token);
+    const response = await this.post(`/scrap/scraps/${encodeURIComponent(id)}`, undefined, 'DELETE', token);
     if (!response.ok && response.status !== 404) throw new Error(await errorMessage(response));
   }
 
@@ -145,7 +145,7 @@ export class R2Service {
     const url = typeof payload.upload_url === 'string' ? payload.upload_url : payload.url;
     const key = typeof payload.object_key === 'string' ? payload.object_key : payload.key;
     if (typeof url !== 'string' || typeof key !== 'string') {
-      throw new Error('The upload worker returned an unexpected response.');
+      throw new Error('The scrap service returned an unexpected response.');
     }
     return {
       url,
@@ -160,13 +160,13 @@ export class R2Service {
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers['Authorization'] = `Bearer ${token}`;
     try {
-      return await fetch(`${WORKER_URL}${path}`, {
+      return await fetch(`${API_URL}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {
-      throw new Error('The upload worker is unreachable.');
+      throw new Error('The scrap service is unreachable.');
     }
   }
 }
@@ -220,11 +220,11 @@ function asFiles(value: unknown): ScrapFile[] {
 }
 
 function throughProxy(url: string): string {
-  if (url.startsWith(WORKER_URL)) return url;
+  if (url.startsWith(API_URL)) return url;
   try {
     const parsed = new URL(url);
     if (parsed.pathname.startsWith('/r2/')) {
-      return `${WORKER_URL}${parsed.pathname}${parsed.search}`;
+      return `${API_URL}${parsed.pathname}${parsed.search}`;
     }
   } catch {
     return url;
@@ -235,9 +235,10 @@ function throughProxy(url: string): string {
 async function errorMessage(response: Response): Promise<string> {
   const text = await response.text();
   try {
-    const body = JSON.parse(text) as { error?: unknown };
-    if (typeof body.error === 'string' && body.error.length > 0 && body.error.length < 200) {
-      return body.error;
+    const body = JSON.parse(text) as { error?: unknown; detail?: unknown };
+    const message = typeof body.error === 'string' ? body.error : body.detail;
+    if (typeof message === 'string' && message.length > 0 && message.length < 200) {
+      return message;
     }
   } catch {
     const trimmed = text.replace(/\s+/g, ' ').trim();

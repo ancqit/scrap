@@ -2,3 +2,5 @@
 *.log
 .wrangler/
 .dev.vars
+.vercel/
+node_modules/

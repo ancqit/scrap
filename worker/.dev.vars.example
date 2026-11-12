@@ -1,4 +1,0 @@
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
-# Set this before deploying. Leave it unset and local uploads stay open.
-# UPLOAD_TOKEN=
