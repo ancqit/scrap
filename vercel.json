@@ -4,6 +4,11 @@
   "buildCommand": "npm run build --prefix portal",
   "outputDirectory": "portal/dist/portal/browser",
   "framework": null,
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     {
       "source": "/((?!api/)(?!.*\\.).*)",
