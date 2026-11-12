@@ -6,6 +6,7 @@ import { routes } from './app.routes';
 describe('App', () => {
   beforeEach(async () => {
     localStorage.clear();
+    sessionStorage.clear();
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [provideRouter(routes)],
@@ -17,8 +18,8 @@ describe('App', () => {
     await TestBed.inject(Router).navigateByUrl('/');
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Scraps');
-    expect(compiled.querySelector('nav')?.textContent).toContain('Admin');
+    expect(compiled.querySelector('h1')?.textContent).toContain('Log in');
+    expect(compiled.querySelector('nav')?.textContent).not.toContain('Admin');
     expect(compiled.textContent).not.toContain('1001');
   });
 });

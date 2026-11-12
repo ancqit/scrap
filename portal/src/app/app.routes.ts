@@ -1,8 +1,7 @@
 import { Routes } from '@angular/router';
-import { AdminPage } from './admin-page';
-import { SlavePage } from './slave-page';
+import { PortalPage } from './portal-page';
 
 export const routes: Routes = [
-  { path: '', component: SlavePage },
-  { path: 'admin', component: AdminPage },
+  { path: '', component: PortalPage },
+  { path: 'admin', redirectTo: '', pathMatch: 'full' },
 ];

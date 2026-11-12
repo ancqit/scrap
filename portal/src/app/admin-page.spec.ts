@@ -49,9 +49,12 @@ describe('AdminPage', () => {
   beforeEach(async () => {
     localStorage.clear();
     sessionStorage.clear();
+    sessionStorage.setItem('scrap.role', 'admin');
+    sessionStorage.setItem('scrap.uploadToken', 'desk-token');
     r2.login.mockClear();
     r2.upload.mockClear();
     r2.createScrap.mockClear();
+    r2.deleteScrap.mockClear();
     await TestBed.configureTestingModule({
       imports: [AdminPage],
       providers: [provideRouter(routes), { provide: R2Service, useValue: r2 }],
@@ -62,14 +65,7 @@ describe('AdminPage', () => {
     const fixture = TestBed.createComponent(AdminPage);
     await fixture.whenStable();
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('select[name="scrap-type"]')).toBeNull();
     expect(root.textContent).not.toContain('1001');
-
-    const token = root.querySelector('input[name="token"]') as HTMLInputElement;
-    token.value = 'desk-token';
-    token.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    (root.querySelector('button[type="submit"]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(root.querySelector('select[name="scrap-type"]')).toBeTruthy());
 
     const select = root.querySelector('select[name="scrap-type"]') as HTMLSelectElement;
@@ -106,6 +102,35 @@ describe('AdminPage', () => {
     expect(TestBed.inject(ScrapStore).items()[0]?.type).toBe('bikes');
     expect(root.textContent).toContain('bikes');
     expect(root.textContent).not.toContain('1001');
+  });
+
+  it('lets the admin create from the documents section alone and delete the card', async () => {
+    const fixture = TestBed.createComponent(AdminPage);
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    await vi.waitFor(() => expect(root.querySelector('fieldset.section')).toBeTruthy());
+
+    const price = root.querySelector('input[name="price"]') as HTMLInputElement;
+    price.value = '900';
+    price.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    expect((root.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+
+    attach(root, 'document', 'application/pdf', 'pdf', 1);
+    await fixture.whenStable();
+    const create = root.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(create.disabled).toBe(false);
+    create.click();
+    await vi.waitFor(() => expect(root.textContent).toContain('Scrap created'));
+    expect(r2.createScrap.mock.calls.at(-1)?.[1].pictures).toHaveLength(0);
+    expect(r2.createScrap.mock.calls.at(-1)?.[1].documents).toHaveLength(1);
+
+    await fixture.whenStable();
+    const remove = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Delete');
+    expect(remove).toBeTruthy();
+    remove?.click();
+    await vi.waitFor(() => expect(TestBed.inject(ScrapStore).items()).toHaveLength(0));
+    expect(r2.deleteScrap).toHaveBeenCalledWith('s1', 'desk-token');
   });
 });
 

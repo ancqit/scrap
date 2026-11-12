@@ -78,9 +78,14 @@ nav {
   gap: 18px;
 }
 
-nav a {
+nav a,
+nav button {
   color: var(--muted);
   text-decoration: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
 
 nav a.active {
@@ -148,6 +153,19 @@ nav a.active {
   margin-bottom: 28px;
 }
 
+.section {
+  border: 1px solid var(--line);
+  margin: 0;
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.section legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -172,7 +190,7 @@ nav a.active {
 
 .pictures {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 4px;
 }
 

@@ -16,13 +16,7 @@ export class ScrapList {
   private readonly r2 = inject(R2Service);
 
   protected async onRemove(id: string): Promise<void> {
-    if (this.removable()) {
-      try {
-        await this.r2.deleteScrap(id, sessionToken());
-      } catch {
-        // Still drop the card if the worker is unreachable.
-      }
-    }
+    if (this.removable()) await this.r2.deleteScrap(id, sessionToken());
     this.store.remove(id);
   }
 }

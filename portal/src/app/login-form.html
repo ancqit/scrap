@@ -1,0 +1,17 @@
+<section>
+  <h1>Log in</h1>
+  <p class="hint">One login for both portals. Click 2001 for the slave portal, or enter the admin token.</p>
+  <form class="form" (submit)="submit($event)">
+    <label>
+      Login
+      <input name="token" type="password" autocomplete="off" [value]="token()" (input)="onToken($event)" />
+    </label>
+    <div class="portal-field__row">
+      <button type="button" (click)="fillSlave()">{{ slavePortal }}</button>
+      <button type="submit" [disabled]="busy() || token().trim().length === 0">Log in</button>
+    </div>
+    @if (notice(); as note) {
+      <p [class]="note.kind" role="status">{{ note.text }}</p>
+    }
+  </form>
+</section>

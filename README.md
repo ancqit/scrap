@@ -11,7 +11,7 @@ Two portal numbers:
 
 The slave page still fills `2001` from a click, the same gesture as herbant. The admin number is not in `portal/src`.
 
-An entity logs in on `/admin`, then creates a scrap: a type (the dropdown starts with `bikes`, and the input accepts another type), a price, 3 pictures, and 1 to 5 documents. That scrap is the card on `2001`. Set the Worker secret `UPLOAD_TOKEN` before a public deploy and use it as the admin token. It is not compiled into the app.
+There is one login. `2001` opens the slave portal, which can see the cards. The Worker secret `UPLOAD_TOKEN` opens the admin desk, which can upload and delete. Any other value is rejected, including when that secret is unset. Set `UPLOAD_TOKEN` before a public deploy. It is not compiled into the app.
 
 ## Dashboard steps
 
@@ -44,16 +44,17 @@ Those are the same R2 names junctionBack reads. With the binding present, upload
 
 | Route | What it does |
 | --- | --- |
-| `POST /admin/login` | Body `{ token }`. Matches `UPLOAD_TOKEN` when that secret is set. |
+| `POST /admin/login` | Body `{ token }`. `2001` returns `{ role: "slave" }`. The `UPLOAD_TOKEN` value returns `{ role: "admin" }`. Anything else is rejected. |
 | `POST /get-upload-url` | Body `{ key, contentType, kind }`. `kind` is `picture` or `document`. Returns a `PUT` into `junction-shorts`. |
-| `POST /scraps` | Body `{ type, price, pictures[3], documents[1..5] }`. Publishes the card. |
+| `POST /scraps` | Body `{ type, price, pictures[0..3], documents[0..5] }`. One of the two sections must contain a file. Uploads those files into the bucket. |
+| `DELETE /scraps/:id` | Admin token. Deletes the card and its files from the bucket. |
 | `GET /scraps` | Cards for portal 2001. |
 | `GET /scrap-types` | `{ types: ["bikes", ...] }`. |
 | `PUT /r2/<key>` | Writes one picture or document into `junction-shorts`. |
 | `GET /r2/<key>` | Reads that object back. Public cards use `https://media.junction.monster` instead. |
 | `GET /health` | `{ ok, uploadProtected, bucket, storage, pictures, documents }`. `bucket` is `junction-shorts`. |
 
-Pictures: JPEG, PNG, WebP, GIF, three per scrap. Documents: those images or PDF, up to five. Keys are forced under `2001/…` and cannot use the `shorts/` prefix.
+The create form has a Scrap section (up to three JPEG, PNG, WebP, or GIF pictures) and a Documents section (up to five of those images, or PDF). Either section can be used on its own. Keys are forced under `2001/…` and cannot use the `shorts/` prefix. Deleting a scrap removes those objects from the bucket.
 
 ## Portal
 

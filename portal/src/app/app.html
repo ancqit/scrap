@@ -2,8 +2,9 @@
   <header class="top">
     <a class="brand" routerLink="/">Scraps</a>
     <nav>
-      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Scraps</a>
-      <a routerLink="/admin" routerLinkActive="active">Admin</a>
+      @if (session.role()) {
+        <button type="button" (click)="logout()">Log out</button>
+      }
     </nav>
   </header>
   <main>

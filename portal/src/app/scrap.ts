@@ -79,7 +79,9 @@ function isScrap(value: unknown): value is Scrap {
     scrap['currency'] === 'INR' &&
     scrap['portal'] === SLAVE_PORTAL &&
     Array.isArray(scrap['pictures']) &&
-    scrap['pictures'].length === 3 &&
-    Array.isArray(scrap['documents'])
+    Array.isArray(scrap['documents']) &&
+    scrap['pictures'].length <= 3 &&
+    scrap['documents'].length <= 5 &&
+    (scrap['pictures'].length > 0 || scrap['documents'].length > 0)
   );
 }

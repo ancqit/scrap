@@ -89,18 +89,21 @@ export function addScrap(scrap: StoredScrap): StoredScrap {
   return scrap;
 }
 
-export function removeScrap(id: string): boolean {
-  const next = scraps.filter((scrap) => scrap.id !== id);
-  const removed = next.length !== scraps.length;
-  scraps = next;
-  return removed;
+export function takeScrap(id: string): StoredScrap | null {
+  const found = scraps.find((scrap) => scrap.id === id) ?? null;
+  if (!found) return null;
+  scraps = scraps.filter((scrap) => scrap.id !== id);
+  return found;
 }
 
 export function scrapFromBody(body: Record<string, unknown>): StoredScrap {
   const type = normalizeType(body["type"]);
   const price = normalizePrice(body["price"]);
-  const pictures = parseFiles(body["pictures"], PICTURE_SLOTS, PICTURE_SLOTS, "pictures");
-  const documents = parseFiles(body["documents"], 1, DOCUMENT_SLOTS, "documents");
+  const pictures = parseFiles(body["pictures"] ?? [], 0, PICTURE_SLOTS, "pictures");
+  const documents = parseFiles(body["documents"] ?? [], 0, DOCUMENT_SLOTS, "documents");
+  if (pictures.length === 0 && documents.length === 0) {
+    throw new CatalogError("Add scrap pictures or documents");
+  }
   return {
     id: crypto.randomUUID(),
     type,
@@ -166,6 +169,7 @@ function sanitizeFilename(filename: string): string {
 }
 
 function slotMessage(label: string, min: number, max: number): string {
+  if (min === 0) return `A scrap can have at most ${max} ${label}`;
   if (min === max) return `A scrap needs ${min} ${label}`;
   return `A scrap needs ${min} to ${max} ${label}`;
 }
