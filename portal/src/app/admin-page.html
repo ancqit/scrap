@@ -1,0 +1,75 @@
+<section>
+  <h1>Admin</h1>
+
+  @if (!loggedIn()) {
+    <p class="hint">Log in to add a scrap. The card shows on the slave portal.</p>
+    <form class="form" (submit)="login($event)">
+      <label>
+        Admin token
+        <input name="token" type="password" autocomplete="off" [value]="token()" (input)="onToken($event)" />
+      </label>
+      <p class="hint">Use the worker upload token. Any token works while that secret is unset.</p>
+      <button type="submit" [disabled]="busy() || token().trim().length === 0">Log in</button>
+      @if (notice(); as note) {
+        <p [class]="note.kind" role="status">{{ note.text }}</p>
+      }
+    </form>
+  } @else {
+    <p class="hint">Three pictures, at least one document and up to five, and a price. Pick bikes, or type another scrap.</p>
+    <form class="form" (submit)="create($event)">
+      <label>
+        Known types
+        <select name="scrap-type" [value]="typeChoice()" (change)="onTypeChoice($event)">
+          @for (type of types(); track type) {
+            <option [value]="type">{{ type }}</option>
+          }
+          <option value="other">Other</option>
+        </select>
+      </label>
+
+      <label>
+        Scrap type
+        <input name="type-name" [value]="typeName()" (input)="onTypeName($event)" maxlength="40" />
+      </label>
+
+      <label>
+        Price
+        <input name="price" type="number" min="0" step="0.01" [value]="price() ?? ''" (input)="onPrice($event)" />
+      </label>
+
+      @for (slot of pictureSlots; track slot) {
+        <label>
+          Picture {{ slot + 1 }}
+          <input
+            type="file"
+            data-kind="picture"
+            [attr.data-slot]="slot"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            (change)="onSlot('picture', slot, $event)"
+          />
+        </label>
+      }
+
+      @for (slot of documentSlots; track slot) {
+        <label>
+          Document {{ slot + 1 }}
+          <input
+            type="file"
+            data-kind="document"
+            [attr.data-slot]="slot"
+            accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
+            (change)="onSlot('document', slot, $event)"
+          />
+        </label>
+      }
+
+      <button type="submit" [disabled]="!canCreate()">Create scrap</button>
+      @if (notice(); as note) {
+        <p [class]="note.kind" role="status">{{ note.text }}</p>
+      }
+    </form>
+
+    <app-scrap-list [removable]="true" />
+    <p class="hint">Remove drops the card from this browser and from the worker catalog.</p>
+  }
+</section>

@@ -1,0 +1,242 @@
+:root {
+  color-scheme: light;
+  --paper: #f3efe4;
+  --ink: #221c16;
+  --muted: #6d6256;
+  --line: #ddd4c4;
+  --stamp: #7d2e24;
+  --stamp-ink: #fff8f2;
+  --card: #fffdf8;
+  --ok: #24553a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(125, 46, 36, 0.06), transparent 28rem),
+    var(--paper);
+  color: var(--ink);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+h1,
+h2 {
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 2.4rem;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+}
+
+.shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 20px 72px;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 32px;
+  padding-bottom: 12px;
+}
+
+.brand {
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: 1.5rem;
+  text-decoration: none;
+}
+
+nav {
+  display: flex;
+  gap: 18px;
+}
+
+nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+nav a.active {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--stamp);
+}
+
+.hint,
+.meta,
+.card time,
+.empty {
+  color: var(--muted);
+}
+
+.portal-field {
+  margin: 16px 0 8px;
+}
+
+.portal-field label,
+.form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.portal-field__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.portal-field input,
+.form input[type='text'],
+.form input[name='title'],
+.form input[type='password'] {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  padding: 8px 10px;
+  min-width: 9rem;
+}
+
+.portal-field button,
+.form button,
+.card button {
+  background: var(--stamp);
+  color: var(--stamp-ink);
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.form button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+  max-width: 32rem;
+  margin-bottom: 28px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.card h2 {
+  font-size: 1.15rem;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.pictures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.card img,
+.frame {
+  width: 100%;
+  height: 96px;
+  object-fit: cover;
+  background: #ece6da;
+  margin: 0;
+}
+
+.frame {
+  overflow: hidden;
+  padding: 8px;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.price {
+  margin: 0;
+  font-weight: 600;
+}
+
+.docs {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.form select {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.frame {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.card button {
+  justify-self: start;
+  margin-top: 8px;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.err {
+  color: var(--stamp);
+}
+
+@media (max-width: 640px) {
+  .top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  h1 {
+    font-size: 2rem;
+  }
+}

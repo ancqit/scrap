@@ -1,0 +1,18 @@
+name = "scrap-r2-presign"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+# Account id is the R2 S3 endpoint host, not a secret.
+# Bucket `scrap` is the R2 bucket. Signing matches junctionBack: s3v4, region auto.
+[vars]
+ACCOUNT_ID = "f1d24d5e867a3d29f557db38d7fe5aab"
+BUCKET = "scrap"
+ALLOWED_ORIGIN = "http://localhost:4200,http://127.0.0.1:4200"
+
+# Optional. When set, public scraps are served from this CDN host instead of
+# a presigned GET. Leave unset until the bucket has a custom domain.
+# PUBLIC_BASE_URL = "https://images.example.com"
+
+# Secrets, set with wrangler (never commit them):
+#   npx wrangler secret put R2_ACCESS_KEY_ID
+#   npx wrangler secret put R2_SECRET_ACCESS_KEY

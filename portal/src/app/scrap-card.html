@@ -1,0 +1,25 @@
+<article class="card">
+  <div class="pictures">
+    @for (picture of scrap().pictures; track picture.objectKey) {
+      @if (failedPicture(picture.objectKey)) {
+        <p class="frame">Image unavailable</p>
+      } @else {
+        <img [src]="picture.url" [alt]="scrap().type" (error)="onPictureError(picture.objectKey)" />
+      }
+    }
+  </div>
+  <h2>{{ scrap().type }}</h2>
+  <p class="price">{{ scrap().price | currency: 'INR' : 'symbol' : '1.0-2' }}</p>
+  <p class="meta">Portal {{ scrap().portal }}</p>
+  @if (scrap().documents.length > 0) {
+    <ul class="docs">
+      @for (document of scrap().documents; track document.objectKey) {
+        <li><a [href]="document.url" target="_blank" rel="noopener">{{ document.filename }}</a></li>
+      }
+    </ul>
+  }
+  <time [attr.datetime]="scrap().createdAt">{{ scrap().createdAt | date: 'medium' }}</time>
+  @if (removable()) {
+    <button type="button" (click)="removed.emit(scrap().id)">Remove</button>
+  }
+</article>
