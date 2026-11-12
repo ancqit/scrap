@@ -165,6 +165,7 @@ describe("presign worker", () => {
       ok: true,
       uploadProtected: false,
       bucket: "scrap",
+      storage: "s3",
       pictures: 3,
       documents: 5,
     });
@@ -222,6 +223,83 @@ describe("presign worker", () => {
     expect(await types.json()).toEqual({ types: ["bikes"] });
   });
 
+  it("writes pictures and the scrap card into the existing scrap bucket", async () => {
+    const bucket = memoryBucket();
+    const bound: Env = {
+      ...env,
+      SCRAP: bucket,
+      R2_ACCESS_KEY_ID: "",
+      R2_SECRET_ACCESS_KEY: "",
+      UPLOAD_TOKEN: "desk-token",
+    };
+
+    const signed = await worker.fetch(
+      post("/get-upload-url", { key: "scraps/one.jpg", contentType: "image/jpeg" }, { token: "desk-token" }),
+      bound,
+    );
+    expect(signed.status).toBe(200);
+    const upload = (await signed.json()) as { upload_url: string; via: string; object_key: string };
+    expect(upload.via).toBe("bucket");
+    expect(upload.object_key).toBe("2001/scraps/one.jpg");
+    expect(upload.upload_url).toBe("https://worker.test/r2/2001/scraps/one.jpg");
+    expect(JSON.stringify(upload)).not.toContain("1001");
+
+    const denied = await worker.fetch(
+      new Request(upload.upload_url, {
+        method: "PUT",
+        headers: { "content-type": "image/jpeg" },
+        body: new Uint8Array([1, 2, 3]),
+      }),
+      bound,
+    );
+    expect(denied.status).toBe(401);
+
+    const put = await worker.fetch(
+      new Request(upload.upload_url, {
+        method: "PUT",
+        headers: { "content-type": "image/jpeg", authorization: "Bearer desk-token" },
+        body: new Uint8Array([1, 2, 3]),
+      }),
+      bound,
+    );
+    expect(put.status).toBe(200);
+
+    const stored = await worker.fetch(new Request(upload.upload_url), bound);
+    expect(stored.status).toBe(200);
+    expect(stored.headers.get("content-type")).toBe("image/jpeg");
+    expect(new Uint8Array(await stored.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+
+    const hidden = await worker.fetch(new Request("https://worker.test/r2/2001/catalog.json"), bound);
+    expect(hidden.status).toBe(404);
+
+    const created = await worker.fetch(
+      post(
+        "/scraps",
+        {
+          type: "bikes",
+          price: 18500,
+          pictures: [file("one.jpg"), file("two.jpg"), file("three.jpg")],
+          documents: [file("rc.pdf", "application/pdf")],
+        },
+        { token: "desk-token" },
+      ),
+      bound,
+    );
+    expect(created.status).toBe(201);
+    clearCatalog();
+
+    const listed = await worker.fetch(new Request("https://worker.test/scraps"), bound);
+    const catalog = (await listed.json()) as {
+      scraps: { type: string; price: number; pictures: { url: string }[] }[];
+    };
+    expect(catalog.scraps[0]?.type).toBe("bikes");
+    expect(catalog.scraps[0]?.price).toBe(18500);
+    expect(catalog.scraps[0]?.pictures[0]?.url).toBe("https://worker.test/r2/2001/scraps/one.jpg");
+
+    const health = await worker.fetch(new Request("https://worker.test/health"), bound);
+    expect(await health.json()).toMatchObject({ bucket: "scrap", storage: "bucket" });
+  });
+
   it("rejects a scrap that does not have 3 pictures", async () => {
     const response = await worker.fetch(
       post("/scraps", { type: "bikes", price: 10, pictures: [file("one.jpg")], documents: [file("rc.pdf", "application/pdf")] }),
@@ -230,6 +308,39 @@ describe("presign worker", () => {
     expect(response.status).toBe(400);
   });
 });
+
+async function bytesOf(value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob): Promise<Uint8Array> {
+  if (typeof value === "string") return new TextEncoder().encode(value);
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  if (value instanceof Blob) return new Uint8Array(await value.arrayBuffer());
+  return new Uint8Array(await new Response(value).arrayBuffer());
+}
+
+function memoryBucket(): NonNullable<Env["SCRAP"]> {
+  const objects = new Map<string, { data: Uint8Array; type: string }>();
+  return {
+    async put(key, value, options) {
+      const data = await bytesOf(value);
+      objects.set(key, { data, type: options?.httpMetadata?.contentType ?? "application/octet-stream" });
+    },
+    async get(key) {
+      const hit = objects.get(key);
+      if (!hit) return null;
+      const data = hit.data;
+      return {
+        httpMetadata: { contentType: hit.type },
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(data);
+            controller.close();
+          },
+        }),
+        json: async () => JSON.parse(new TextDecoder().decode(data)) as unknown,
+      };
+    },
+  };
+}
 
 function file(filename: string, contentType = "image/jpeg"): Record<string, string> {
   return {

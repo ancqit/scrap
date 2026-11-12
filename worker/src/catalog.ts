@@ -41,6 +41,40 @@ export function clearCatalog(): void {
   scraps = [];
 }
 
+export function replaceCatalog(items: StoredScrap[]): void {
+  scraps = items.map((item) => ({
+    ...item,
+    pictures: [...item.pictures],
+    documents: [...item.documents],
+  }));
+}
+
+export function isStoredScrap(value: unknown): value is StoredScrap {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item["id"] === "string" &&
+    typeof item["type"] === "string" &&
+    typeof item["price"] === "number" &&
+    item["currency"] === "INR" &&
+    typeof item["createdAt"] === "string" &&
+    Array.isArray(item["pictures"]) &&
+    item["pictures"].every(isStoredFile) &&
+    Array.isArray(item["documents"]) &&
+    item["documents"].every(isStoredFile)
+  );
+}
+
+function isStoredFile(value: unknown): value is ScrapFile {
+  if (!value || typeof value !== "object") return false;
+  const file = value as Record<string, unknown>;
+  return (
+    typeof file["objectKey"] === "string" &&
+    typeof file["contentType"] === "string" &&
+    typeof file["filename"] === "string"
+  );
+}
+
 export function listScraps(): StoredScrap[] {
   return scraps;
 }

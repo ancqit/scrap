@@ -39,6 +39,36 @@ describe('R2Service', () => {
     expect(calls[1]?.url).toContain('r2.cloudflarestorage.com');
     expect(calls[1]?.init?.method).toBe('PUT');
     expect(calls[1]?.init?.body).toBe(file);
+    expect(new Headers(calls[1]?.init?.headers).get('authorization')).toBeNull();
+  });
+
+  it('sends the admin token when the upload url is the worker bucket route', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (calls.length === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              upload_url: `${WORKER_URL}/r2/2001/scraps/a.jpg`,
+              object_key: '2001/scraps/a.jpg',
+              headers: { 'content-type': 'image/jpeg' },
+              content_type: 'image/jpeg',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 200 }));
+    });
+
+    const service = TestBed.inject(R2Service);
+    const file = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
+    await service.upload(file, 'desk-token');
+
+    expect(calls[1]?.url).toBe(`${WORKER_URL}/r2/2001/scraps/a.jpg`);
+    expect(new Headers(calls[1]?.init?.headers).get('authorization')).toBe('Bearer desk-token');
+    expect(new Headers(calls[1]?.init?.headers).get('content-type')).toBe('image/jpeg');
   });
 
   it('refuses a file that is not an image before calling the worker', async () => {

@@ -1,6 +1,6 @@
 # scrap
 
-Angular portal for scraps, plus a Cloudflare Worker that signs R2 uploads. The browser talks to R2 directly. R2 credentials stay in Worker secrets and never go in the Angular bundle.
+Angular portal for scraps, plus a Cloudflare Worker that stores pictures, documents, and scrap cards in the existing R2 bucket `scrap`. The browser never receives R2 credentials.
 
 Two portal numbers:
 
@@ -15,12 +15,11 @@ An entity logs in on `/admin`, then creates a scrap: a type (the dropdown starts
 
 ## Dashboard steps
 
-These stay in the Cloudflare dashboard:
+The Worker already names the existing bucket. `worker/wrangler.toml` binds it as `SCRAP` with `bucket_name = "scrap"`. Deploy the Worker in the Cloudflare account that owns that bucket. Wrangler attaches `scrap`; it does not create another bucket.
 
-1. The bucket is `scrap` (`BUCKET` in `worker/wrangler.toml`). Reuse that bucket; do not create a second one.
-2. R2 → API tokens → Create an S3 API token, Object Read & Write, scoped to `scrap`. This is the same pair junctionBack stores as `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
-3. Bucket → Settings → CORS. Paste `worker/r2-cors.json`. Add your production origin to `AllowedOrigins` when you have one. `PUT` from the browser fails without this.
-4. For production reads, attach a custom domain that is already on Cloudflare. Put that origin in `PUBLIC_BASE_URL`. Skip the `r2.dev` URL; it is rate-limited and not cached.
+An S3 API token is not required for this path. The admin browser sends each file to the Worker, and the Worker writes it into `scrap`. The same binding stores the card list at `2001/catalog.json`.
+
+For production reads you can attach a custom domain that is already on Cloudflare and put that origin in `PUBLIC_BASE_URL`. Skip the `r2.dev` URL; it is rate-limited and not cached. `worker/r2-cors.json` is only for a direct browser PUT to R2, which this path does not use.
 
 ## Worker
 
@@ -32,27 +31,27 @@ cp .dev.vars.example .dev.vars   # local secrets, not committed
 npx wrangler dev
 ```
 
-Deploy, then set secrets (do not put them in `wrangler.toml`):
+Deploy in the account that already has `scrap`:
 
 ```bash
-npx wrangler secret put R2_ACCESS_KEY_ID
-npx wrangler secret put R2_SECRET_ACCESS_KEY
 npx wrangler secret put UPLOAD_TOKEN
 npx wrangler deploy
 ```
 
-`ACCOUNT_ID` is already set in `wrangler.toml`. It is the R2 endpoint host, not a secret.
+`ACCOUNT_ID` is already set in `wrangler.toml`. It is the R2 endpoint host, not a secret. `UPLOAD_TOKEN` is the admin login. It is not an R2 key.
 
-Signing follows junctionBack `r2_media.presign_put`: S3 `put_object`, region `auto`, signature `s3v4`, `ContentType` included. The JSON uses the same names (`object_key`, `upload_url`, `public_url`, `content_type`, `expires_in`).
+If you later want the browser to PUT straight to R2, set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` and leave the `SCRAP` binding off. That path signs like junctionBack `r2_media.presign_put`: S3 `put_object`, region `auto`, signature `s3v4`, `ContentType` included. The JSON uses the same names (`object_key`, `upload_url`, `public_url`, `content_type`, `expires_in`). With the binding present, those URLs point at the Worker, which writes `scrap`.
 
 | Route | What it does |
 | --- | --- |
 | `POST /admin/login` | Body `{ token }`. Matches `UPLOAD_TOKEN` when that secret is set. |
-| `POST /get-upload-url` | Body `{ key, contentType, kind }`. `kind` is `picture` or `document`. Returns a one-hour presigned `PUT`. |
+| `POST /get-upload-url` | Body `{ key, contentType, kind }`. `kind` is `picture` or `document`. Returns a `PUT` for the bound `scrap` bucket. |
 | `POST /scraps` | Body `{ type, price, pictures[3], documents[1..5] }`. Publishes the card. |
 | `GET /scraps` | Cards for portal 2001. |
 | `GET /scrap-types` | `{ types: ["bikes", ...] }`. |
-| `GET /health` | `{ ok, uploadProtected, bucket, pictures, documents }`. |
+| `PUT /r2/<key>` | Writes one picture or document into the bound `scrap` bucket. |
+| `GET /r2/<key>` | Reads that object back out of `scrap`. |
+| `GET /health` | `{ ok, uploadProtected, bucket, storage, pictures, documents }`. `storage` is `bucket` when `scrap` is bound. |
 
 Pictures: JPEG, PNG, WebP, GIF, three per scrap. Documents: those images or PDF, up to five. Keys are forced under `2001/…`.
 
@@ -67,4 +66,4 @@ npm start
 
 The dev server is `http://localhost:4200`. `portal/src/app/worker-url.ts` points at `http://127.0.0.1:8787` (wrangler dev). Change that constant to the deployed Worker origin before you ship the portal, and add the same origin to `ALLOWED_ORIGIN`.
 
-The worker keeps the catalog in memory for the current process and the portal mirrors it in `localStorage` (`scrap.store.v1`). Picture and document bytes go to the `scrap` bucket once the S3 token is set. Send that token when you have it; it belongs in `worker/.dev.vars` locally and in `wrangler secret put` for deploy, never in the Angular app.
+Picture and document bytes, and the scrap cards, are stored in the existing `scrap` bucket. The portal also mirrors the card list in `localStorage` (`scrap.store.v1`) so the 2001 page can render if the Worker is briefly unreachable. On Render, publish the Angular app as a static site. The Worker, deployed on Cloudflare, is what writes `scrap`. Change `portal/src/app/worker-url.ts` to that Worker origin before the Render build, and add the Render origin to `ALLOWED_ORIGIN`.
