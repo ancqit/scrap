@@ -1,14 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install --prefix portal",
+  "installCommand": "npm install --prefix portal && npm install --prefix worker",
   "buildCommand": "npm run build --prefix portal",
   "outputDirectory": "portal/dist/portal/browser",
   "framework": null,
   "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://scrap-r2-presign.ancqit.workers.dev/:path*"
-    },
     {
       "source": "/((?!api/)(?!.*\\.).*)",
       "destination": "/index.html"

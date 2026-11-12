@@ -233,13 +233,15 @@ function throughProxy(url: string): string {
 }
 
 async function errorMessage(response: Response): Promise<string> {
+  const text = await response.text();
   try {
-    const body = (await response.json()) as { error?: unknown };
+    const body = JSON.parse(text) as { error?: unknown };
     if (typeof body.error === 'string' && body.error.length > 0 && body.error.length < 200) {
       return body.error;
     }
   } catch {
-    // Fall through to the generic message.
+    const trimmed = text.replace(/\s+/g, ' ').trim();
+    if (trimmed.length > 0 && trimmed.length < 180 && !trimmed.startsWith('<')) return trimmed;
   }
   return 'The bucket request failed.';
 }
