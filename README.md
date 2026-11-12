@@ -46,14 +46,15 @@ Those are the same R2 names junctionBack reads. With the binding present, upload
 | --- | --- |
 | `POST /admin/login` | Body `{ token }`. Matches `UPLOAD_TOKEN` when that secret is set. |
 | `POST /get-upload-url` | Body `{ key, contentType, kind }`. `kind` is `picture` or `document`. Returns a `PUT` into `junction-shorts`. |
-| `POST /scraps` | Body `{ type, price, pictures[3], documents[1..5] }`. Publishes the card. |
+| `POST /scraps` | Body `{ type, price, pictures[0..3], documents[0..5] }`. One of the two sections must contain a file. Uploads those files into the bucket. |
+| `DELETE /scraps/:id` | Admin token. Deletes the card and its files from the bucket. |
 | `GET /scraps` | Cards for portal 2001. |
 | `GET /scrap-types` | `{ types: ["bikes", ...] }`. |
 | `PUT /r2/<key>` | Writes one picture or document into `junction-shorts`. |
 | `GET /r2/<key>` | Reads that object back. Public cards use `https://media.junction.monster` instead. |
 | `GET /health` | `{ ok, uploadProtected, bucket, storage, pictures, documents }`. `bucket` is `junction-shorts`. |
 
-Pictures: JPEG, PNG, WebP, GIF, three per scrap. Documents: those images or PDF, up to five. Keys are forced under `2001/…` and cannot use the `shorts/` prefix.
+The create form has a Scrap section (up to three JPEG, PNG, WebP, or GIF pictures) and a Documents section (up to five of those images, or PDF). Either section can be used on its own. Keys are forced under `2001/…` and cannot use the `shorts/` prefix. Deleting a scrap removes those objects from the bucket.
 
 ## Portal
 

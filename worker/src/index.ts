@@ -6,7 +6,7 @@ import {
   addScrap,
   isStoredScrap,
   listScraps,
-  removeScrap,
+  takeScrap,
   replaceCatalog,
   scrapFromBody,
   scrapTypes,
@@ -41,6 +41,7 @@ export interface ScrapBucket {
     options?: { httpMetadata?: { contentType?: string; cacheControl?: string } },
   ): Promise<unknown>;
   get(key: string): Promise<ScrapObject | null>;
+  delete(key: string): Promise<void>;
 }
 
 export interface ScrapObject {
@@ -124,7 +125,9 @@ async function route(request: Request, env: Env, origin: string | null): Promise
     assertUploadToken(request, env);
     await hydrate(env);
     const id = decodeURIComponent(path.slice("/scraps/".length));
-    if (!id || !removeScrap(id)) return json({ error: "Scrap not found" }, 404, origin);
+    const scrap = id ? takeScrap(id) : null;
+    if (!scrap) return json({ error: "Scrap not found" }, 404, origin);
+    await deleteStoredFiles(env, scrap);
     await persist(env);
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
@@ -310,6 +313,12 @@ async function hydrate(env: Env): Promise<void> {
   }
   if (!Array.isArray(parsed)) return;
   replaceCatalog(parsed.filter(isStoredScrap));
+}
+
+async function deleteStoredFiles(env: Env, scrap: StoredScrap): Promise<void> {
+  if (!env.SCRAP) return;
+  const keys = [...scrap.pictures, ...scrap.documents].map((file) => file.objectKey);
+  await Promise.all(keys.map((key) => env.SCRAP?.delete(key)));
 }
 
 async function persist(env: Env): Promise<void> {

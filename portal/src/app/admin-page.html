@@ -15,7 +15,7 @@
       }
     </form>
   } @else {
-    <p class="hint">Three pictures, at least one document and up to five, and a price. Pick bikes, or type another scrap.</p>
+    <p class="hint">Fill the scrap section or the documents section. One of them is required. Pick bikes, or type another scrap.</p>
     <form class="form" (submit)="create($event)">
       <label>
         Known types
@@ -37,31 +37,39 @@
         <input name="price" type="number" min="0" step="0.01" [value]="price() ?? ''" (input)="onPrice($event)" />
       </label>
 
-      @for (slot of pictureSlots; track slot) {
-        <label>
-          Picture {{ slot + 1 }}
-          <input
-            type="file"
-            data-kind="picture"
-            [attr.data-slot]="slot"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            (change)="onSlot('picture', slot, $event)"
-          />
-        </label>
-      }
+      <fieldset class="section">
+        <legend>Scrap</legend>
+        <p class="hint">Up to three pictures. This section can stand alone.</p>
+        @for (slot of pictureSlots; track slot) {
+          <label>
+            Picture {{ slot + 1 }}
+            <input
+              type="file"
+              data-kind="picture"
+              [attr.data-slot]="slot"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              (change)="onSlot('picture', slot, $event)"
+            />
+          </label>
+        }
+      </fieldset>
 
-      @for (slot of documentSlots; track slot) {
-        <label>
-          Document {{ slot + 1 }}
-          <input
-            type="file"
-            data-kind="document"
-            [attr.data-slot]="slot"
-            accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
-            (change)="onSlot('document', slot, $event)"
-          />
-        </label>
-      }
+      <fieldset class="section">
+        <legend>Documents</legend>
+        <p class="hint">Up to five documents. This section can stand alone.</p>
+        @for (slot of documentSlots; track slot) {
+          <label>
+            Document {{ slot + 1 }}
+            <input
+              type="file"
+              data-kind="document"
+              [attr.data-slot]="slot"
+              accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
+              (change)="onSlot('document', slot, $event)"
+            />
+          </label>
+        }
+      </fieldset>
 
       <button type="submit" [disabled]="!canCreate()">Create scrap</button>
       @if (notice(); as note) {
@@ -70,6 +78,6 @@
     </form>
 
     <app-scrap-list [removable]="true" />
-    <p class="hint">Remove drops the card from this browser and from the worker catalog.</p>
+    <p class="hint">Delete removes the card and its files from the bucket.</p>
   }
 </section>

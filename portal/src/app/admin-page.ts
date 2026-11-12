@@ -36,8 +36,7 @@ export class AdminPage {
       this.typeName().trim().length > 1 &&
       price !== null &&
       price >= 0 &&
-      this.pictures().every((file) => file !== null) &&
-      this.documents().some((file) => file !== null) &&
+      (this.pictures().some((file) => file !== null) || this.documents().some((file) => file !== null)) &&
       !this.busy()
     );
   });

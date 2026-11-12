@@ -316,12 +316,58 @@ describe("presign worker", () => {
     expect(cdn.scraps[0]?.pictures[0]?.url).toBe("https://media.junction.monster/2001/scraps/one.jpg");
   });
 
-  it("rejects a scrap that does not have 3 pictures", async () => {
-    const response = await worker.fetch(
-      post("/scraps", { type: "bikes", price: 10, pictures: [file("one.jpg")], documents: [file("rc.pdf", "application/pdf")] }),
+  it("accepts a scrap that fills only one section", async () => {
+    const pictures = await worker.fetch(
+      post("/scraps", { type: "bikes", price: 10, pictures: [file("one.jpg")], documents: [] }),
       env,
     );
-    expect(response.status).toBe(400);
+    expect(pictures.status).toBe(201);
+
+    const documents = await worker.fetch(
+      post("/scraps", {
+        type: "bikes",
+        price: 12,
+        pictures: [],
+        documents: [file("rc.pdf", "application/pdf")],
+      }),
+      env,
+    );
+    expect(documents.status).toBe(201);
+
+    const empty = await worker.fetch(
+      post("/scraps", { type: "bikes", price: 12, pictures: [], documents: [] }),
+      env,
+    );
+    expect(empty.status).toBe(400);
+  });
+
+  it("deletes the scrap card and its files from the bucket", async () => {
+    const bucket = memoryBucket();
+    const bound: Env = { ...env, SCRAP: bucket, UPLOAD_TOKEN: "desk-token" };
+    await bucket.put("2001/scraps/one.jpg", new Uint8Array([9, 9]), {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+
+    const created = await worker.fetch(
+      post("/scraps", { type: "bikes", price: 10, pictures: [file("one.jpg")], documents: [] }, { token: "desk-token" }),
+      bound,
+    );
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { scrap: { id: string } };
+
+    const removed = await worker.fetch(
+      new Request(`https://worker.test/scraps/${body.scrap.id}`, {
+        method: "DELETE",
+        headers: { authorization: "Bearer desk-token" },
+      }),
+      bound,
+    );
+    expect(removed.status).toBe(204);
+
+    const object = await worker.fetch(new Request("https://worker.test/r2/2001/scraps/one.jpg"), bound);
+    expect(object.status).toBe(404);
+    const listed = await worker.fetch(new Request("https://worker.test/scraps"), bound);
+    expect(await listed.json()).toEqual({ scraps: [] });
   });
 });
 
@@ -354,6 +400,9 @@ function memoryBucket(): NonNullable<Env["SCRAP"]> {
         }),
         json: async () => JSON.parse(new TextDecoder().decode(data)) as unknown,
       };
+    },
+    async delete(key) {
+      objects.delete(key);
     },
   };
 }

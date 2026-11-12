@@ -180,7 +180,9 @@ function asScrap(value: unknown): Scrap | null {
     typeof record['id'] !== 'string' ||
     typeof record['type'] !== 'string' ||
     typeof record['price'] !== 'number' ||
-    pictures.length !== 3
+    (pictures.length === 0 && documents.length === 0) ||
+    pictures.length > 3 ||
+    documents.length > 5
   ) {
     return null;
   }
