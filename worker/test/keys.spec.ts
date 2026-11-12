@@ -28,6 +28,8 @@ describe("toPublicObjectKey", () => {
     ["a scheme", "https://example.com/a.jpg"],
     ["an admin segment deeper in the path", `${SLAVE_PORTAL}/${ADMIN_PORTAL}/a.jpg`],
     ["the portal id alone", ADMIN_PORTAL],
+    ["junction shorts prefix", "shorts/clip.mp4"],
+    ["shorts under the slave portal", `${SLAVE_PORTAL}/shorts/clip.mp4`],
     ["an empty string", "   "],
     ["a non-string", 1001],
   ])("rejects %s", (_label, input) => {

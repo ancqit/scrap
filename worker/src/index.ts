@@ -4,8 +4,10 @@ import {
   DOCUMENT_SLOTS,
   PICTURE_SLOTS,
   addScrap,
+  isStoredScrap,
   listScraps,
   removeScrap,
+  replaceCatalog,
   scrapFromBody,
   scrapTypes,
   type ScrapFile,
@@ -28,10 +30,30 @@ export interface Env {
    * Leave unset only for local wrangler dev. Set it before a public deploy.
    */
   UPLOAD_TOKEN?: string;
+  /** junctionBack's R2 bucket, `junction-shorts`. Writes and reads go here when the binding is present. */
+  SCRAP?: ScrapBucket;
+}
+
+export interface ScrapBucket {
+  put(
+    key: string,
+    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
+    options?: { httpMetadata?: { contentType?: string; cacheControl?: string } },
+  ): Promise<unknown>;
+  get(key: string): Promise<ScrapObject | null>;
+}
+
+export interface ScrapObject {
+  body: ReadableStream;
+  httpMetadata?: { contentType?: string };
+  json(): Promise<unknown>;
 }
 
 const EXPIRES_SECONDS = 3600;
 const MAX_BODY_CHARS = 16_384;
+const PICTURE_BYTES = 5 * 1024 * 1024;
+const DOCUMENT_BYTES = 10 * 1024 * 1024;
+const CATALOG_KEY = "2001/catalog.json";
 
 const PICTURE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const DOCUMENT_TYPES = new Set([...PICTURE_TYPES, "application/pdf"]);
@@ -74,20 +96,36 @@ async function route(request: Request, env: Env, origin: string | null): Promise
 
   if (request.method === "GET" && (path === "/" || path === "/health")) {
     return json(
-      { ok: true, uploadProtected: Boolean(env.UPLOAD_TOKEN), bucket: env.BUCKET, pictures: PICTURE_SLOTS, documents: DOCUMENT_SLOTS },
+      {
+        ok: true,
+        uploadProtected: Boolean(env.UPLOAD_TOKEN),
+        bucket: env.BUCKET,
+        storage: env.SCRAP ? "bucket" : "s3",
+        pictures: PICTURE_SLOTS,
+        documents: DOCUMENT_SLOTS,
+      },
       200,
       origin,
     );
   }
 
-  if (request.method === "GET" && path === "/scraps") return json(await publicCatalog(env), 200, origin);
+  if (path.startsWith("/r2/")) {
+    if (request.method === "PUT") return writeObject(request, env, origin, path);
+    if (request.method === "GET" || request.method === "HEAD") return readObject(request, env, origin, path);
+    return json({ error: "Method not allowed" }, 405, origin, { allow: "GET, HEAD, PUT, OPTIONS" });
+  }
+
+  if (request.method === "GET" && path === "/scraps") return json(await publicCatalog(request, env), 200, origin);
   if (request.method === "GET" && path === "/scrap-types") {
+    await hydrate(env);
     return json({ types: scrapTypes() }, 200, origin);
   }
   if (request.method === "DELETE" && path.startsWith("/scraps/")) {
     assertUploadToken(request, env);
+    await hydrate(env);
     const id = decodeURIComponent(path.slice("/scraps/".length));
     if (!id || !removeScrap(id)) return json({ error: "Scrap not found" }, 404, origin);
+    await persist(env);
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
 
@@ -113,51 +151,58 @@ async function adminLogin(request: Request, env: Env, origin: string | null): Pr
 }
 
 async function createScrap(request: Request, env: Env, origin: string | null): Promise<Response> {
-  assertConfigured(env);
+  assertStorage(env);
   assertUploadToken(request, env);
+  await hydrate(env);
   const scrap = addScrap(scrapFromBody(await readJson(request)));
-  return json({ scrap: await presentScrap(env, scrap) }, 201, origin);
+  await persist(env);
+  return json({ scrap: await presentScrap(env, request, scrap) }, 201, origin);
 }
 
-async function publicCatalog(env: Env): Promise<{ scraps: Record<string, unknown>[] }> {
-  assertConfigured(env);
-  const scraps = await Promise.all(listScraps().map((scrap) => presentScrap(env, scrap)));
+async function publicCatalog(request: Request, env: Env): Promise<{ scraps: Record<string, unknown>[] }> {
+  assertStorage(env);
+  await hydrate(env);
+  const scraps = await Promise.all(listScraps().map((scrap) => presentScrap(env, request, scrap)));
   return { scraps };
 }
 
-async function presentScrap(env: Env, scrap: StoredScrap): Promise<Record<string, unknown>> {
+async function presentScrap(env: Env, request: Request, scrap: StoredScrap): Promise<Record<string, unknown>> {
   return {
     id: scrap.id,
     type: scrap.type,
     price: scrap.price,
     currency: scrap.currency,
     portal: "2001",
-    pictures: await Promise.all(scrap.pictures.map((file) => presentFile(env, file))),
-    documents: await Promise.all(scrap.documents.map((file) => presentFile(env, file))),
+    pictures: await Promise.all(scrap.pictures.map((file) => presentFile(env, request, file))),
+    documents: await Promise.all(scrap.documents.map((file) => presentFile(env, request, file))),
     created_at: scrap.createdAt,
   };
 }
 
-async function presentFile(env: Env, file: ScrapFile): Promise<Record<string, unknown>> {
-  const url = env.PUBLIC_BASE_URL
-    ? cdnUrl(env.PUBLIC_BASE_URL, file.objectKey)
-    : (await presign(env, "GET", file.objectKey)).url;
+async function presentFile(env: Env, request: Request, file: ScrapFile): Promise<Record<string, unknown>> {
   return {
     object_key: file.objectKey,
-    url,
+    url: await publicObjectUrl(env, request, file.objectKey),
     content_type: file.contentType,
     filename: file.filename,
   };
 }
 
+async function publicObjectUrl(env: Env, request: Request, key: string): Promise<string> {
+  if (env.PUBLIC_BASE_URL) return cdnUrl(env.PUBLIC_BASE_URL, key);
+  if (env.SCRAP) return `${workerOrigin(request)}/r2/${encodeKey(key)}`;
+  return (await presign(env, "GET", key)).url;
+}
+
 async function uploadUrl(request: Request, env: Env, origin: string | null): Promise<Response> {
-  assertConfigured(env);
+  assertStorage(env);
   assertUploadToken(request, env);
 
   const body = await readJson(request);
   const kind = body["kind"] === "document" ? "document" : "picture";
   const contentType = normalizeContentType(kind, body["contentType"] ?? body["content_type"]);
   const key = toPublicObjectKey(body["key"] ?? body["object_key"]);
+  if (env.SCRAP) return bucketUpload(request, env, origin, key, contentType, kind);
   const signed = await presign(env, "PUT", key, contentType);
   const publicUrl = env.PUBLIC_BASE_URL ? cdnUrl(env.PUBLIC_BASE_URL, key) : "";
   return json(
@@ -180,6 +225,104 @@ async function uploadUrl(request: Request, env: Env, origin: string | null): Pro
   );
 }
 
+function bucketUpload(
+  request: Request,
+  env: Env,
+  origin: string | null,
+  key: string,
+  contentType: string,
+  kind: "picture" | "document",
+): Response {
+  const upload = `${workerOrigin(request)}/r2/${encodeKey(key)}`;
+  const publicUrl = env.PUBLIC_BASE_URL ? cdnUrl(env.PUBLIC_BASE_URL, key) : upload;
+  return json(
+    {
+      object_key: key,
+      upload_url: upload,
+      public_url: publicUrl,
+      content_type: contentType,
+      expires_in: EXPIRES_SECONDS,
+      kind,
+      upload_method: "PUT",
+      headers: { "content-type": contentType },
+      url: upload,
+      key,
+      method: "PUT",
+      expiresIn: EXPIRES_SECONDS,
+      via: "bucket",
+    },
+    200,
+    origin,
+  );
+}
+
+async function writeObject(request: Request, env: Env, origin: string | null, path: string): Promise<Response> {
+  if (!env.SCRAP) throw new HttpError(404, "Object not found");
+  assertUploadToken(request, env);
+  const key = objectKeyFromPath(path);
+  const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  if (!DOCUMENT_TYPES.has(contentType)) {
+    throw new HttpError(400, "Pictures must be JPEG, PNG, WebP, or GIF");
+  }
+  const bytes = await request.arrayBuffer();
+  const limit = contentType === "application/pdf" ? DOCUMENT_BYTES : PICTURE_BYTES;
+  if (bytes.byteLength === 0) throw new HttpError(400, "The file is empty");
+  if (bytes.byteLength > limit) throw new HttpError(413, "The file is too large");
+  await env.SCRAP.put(key, bytes, {
+    httpMetadata: { contentType, cacheControl: "public, max-age=31536000, immutable" },
+  });
+  return new Response(null, { status: 200, headers: corsHeaders(origin) });
+}
+
+async function readObject(request: Request, env: Env, origin: string | null, path: string): Promise<Response> {
+  if (!env.SCRAP) throw new HttpError(404, "Object not found");
+  const key = objectKeyFromPath(path);
+  const object = await env.SCRAP.get(key);
+  if (!object) throw new HttpError(404, "Object not found");
+  const headers = corsHeaders(origin);
+  headers.set("content-type", object.httpMetadata?.contentType || "application/octet-stream");
+  headers.set("cache-control", "public, max-age=3600");
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+  return new Response(object.body, { status: 200, headers });
+}
+
+function objectKeyFromPath(path: string): string {
+  let raw = path.slice("/r2/".length);
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    throw new HttpError(400, "Object key is invalid");
+  }
+  const key = toPublicObjectKey(raw);
+  if (key === CATALOG_KEY) throw new HttpError(404, "Object not found");
+  return key;
+}
+
+async function hydrate(env: Env): Promise<void> {
+  if (!env.SCRAP) return;
+  const object = await env.SCRAP.get(CATALOG_KEY);
+  if (!object) return;
+  let parsed: unknown;
+  try {
+    parsed = await object.json();
+  } catch {
+    return;
+  }
+  if (!Array.isArray(parsed)) return;
+  replaceCatalog(parsed.filter(isStoredScrap));
+}
+
+async function persist(env: Env): Promise<void> {
+  if (!env.SCRAP) return;
+  await env.SCRAP.put(CATALOG_KEY, JSON.stringify(listScraps()), {
+    httpMetadata: { contentType: "application/json", cacheControl: "no-store" },
+  });
+}
+
+function workerOrigin(request: Request): string {
+  return new URL(request.url).origin;
+}
+
 function normalizeContentType(kind: "picture" | "document", raw: unknown): string {
   if (typeof raw !== "string") {
     throw new HttpError(400, "contentType is required");
@@ -198,9 +341,23 @@ function normalizeContentType(kind: "picture" | "document", raw: unknown): strin
 }
 
 async function downloadUrl(request: Request, env: Env, origin: string | null): Promise<Response> {
-  assertConfigured(env);
+  assertStorage(env);
   const body = await readJson(request);
   const key = toPublicObjectKey(body["key"]);
+
+  if (env.SCRAP && !(body["visibility"] === "public" && env.PUBLIC_BASE_URL)) {
+    return json(
+      {
+        url: `${workerOrigin(request)}/r2/${encodeKey(key)}`,
+        key,
+        signed: false,
+        via: "bucket",
+        method: "GET",
+      },
+      200,
+      origin,
+    );
+  }
 
   if (body["visibility"] === "public" && env.PUBLIC_BASE_URL) {
     return json({ url: cdnUrl(env.PUBLIC_BASE_URL, key), key, signed: false, via: "cdn" }, 200, origin);
@@ -219,6 +376,16 @@ async function downloadUrl(request: Request, env: Env, origin: string | null): P
     200,
     origin,
   );
+}
+
+function assertStorage(env: Env): void {
+  if (env.SCRAP) {
+    if (!/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/.test(env.BUCKET ?? "")) {
+      throw new HttpError(500, "BUCKET is not configured");
+    }
+    return;
+  }
+  assertConfigured(env);
 }
 
 function assertConfigured(env: Env): void {
@@ -345,7 +512,10 @@ function resolveOrigin(request: Request, allowed: string): string | null | "deny
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  return list.includes(origin) ? origin : "deny";
+  if (list.includes(origin)) return origin;
+  // Preview and production hosts, same allowance junctionBack gives *.vercel.app.
+  if (/^https:\/\/(?:[a-z0-9-]+\.)+vercel\.app$/.test(origin)) return origin;
+  return "deny";
 }
 
 function corsHeaders(origin: string | null): Headers {
@@ -354,7 +524,7 @@ function corsHeaders(origin: string | null): Headers {
     headers.set("access-control-allow-origin", origin);
     headers.set("vary", "Origin");
   }
-  headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+  headers.set("access-control-allow-methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS");
   headers.set("access-control-allow-headers", "Content-Type, Authorization");
   headers.set("access-control-max-age", "86400");
   return headers;

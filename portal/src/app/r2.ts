@@ -65,11 +65,16 @@ export class R2Service {
       throw new Error('The upload worker returned an unexpected key.');
     }
 
+    const headers = new Headers(signed.headers ?? { 'Content-Type': file.type });
+    if (token && signed.url.startsWith(WORKER_URL)) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
     let put: Response;
     try {
       put = await fetch(signed.url, {
         method: 'PUT',
-        headers: signed.headers ?? { 'Content-Type': file.type },
+        headers,
         body: file,
       });
     } catch {

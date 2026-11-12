@@ -1,6 +1,6 @@
 # scrap
 
-Angular portal for scraps, plus a Cloudflare Worker that signs R2 uploads. The browser talks to R2 directly. R2 credentials stay in Worker secrets and never go in the Angular bundle.
+Angular portal for scraps, plus a Cloudflare Worker that stores pictures, documents, and scrap cards in the R2 bucket junctionBack already uses, `junction-shorts`. Public files are read from `https://media.junction.monster`. The browser never receives R2 credentials.
 
 Two portal numbers:
 
@@ -15,12 +15,11 @@ An entity logs in on `/admin`, then creates a scrap: a type (the dropdown starts
 
 ## Dashboard steps
 
-These stay in the Cloudflare dashboard:
+junctionBack's bucket is `junction-shorts` (`R2_BUCKET` in that repo) and its public host is `https://media.junction.monster`. `worker/wrangler.toml` binds that same bucket as `SCRAP`. Deploy the Worker in the Cloudflare account that owns it. Wrangler attaches `junction-shorts`; it does not create a bucket.
 
-1. The bucket is `scrap` (`BUCKET` in `worker/wrangler.toml`). Reuse that bucket; do not create a second one.
-2. R2 → API tokens → Create an S3 API token, Object Read & Write, scoped to `scrap`. This is the same pair junctionBack stores as `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
-3. Bucket → Settings → CORS. Paste `worker/r2-cors.json`. Add your production origin to `AllowedOrigins` when you have one. `PUT` from the browser fails without this.
-4. For production reads, attach a custom domain that is already on Cloudflare. Put that origin in `PUBLIC_BASE_URL`. Skip the `r2.dev` URL; it is rate-limited and not cached.
+Scrap files are stored under `2001/…`. junctionBack shorts stay under `shorts/…`, and the Worker rejects a scrap key that would land there. The card list is `2001/catalog.json` in the same bucket. Picture and document objects use the same long cache header junctionBack sets on shorts (`public, max-age=31536000, immutable`).
+
+An S3 API token is not required for this path. The admin browser sends each file to the Worker, and the Worker writes it into `junction-shorts`. `worker/r2-cors.json` is only for a direct browser PUT to R2, which this path does not use.
 
 ## Worker
 
@@ -32,29 +31,29 @@ cp .dev.vars.example .dev.vars   # local secrets, not committed
 npx wrangler dev
 ```
 
-Deploy, then set secrets (do not put them in `wrangler.toml`):
+Deploy in the account that already has `junction-shorts`:
 
 ```bash
-npx wrangler secret put R2_ACCESS_KEY_ID
-npx wrangler secret put R2_SECRET_ACCESS_KEY
 npx wrangler secret put UPLOAD_TOKEN
 npx wrangler deploy
 ```
 
-`ACCOUNT_ID` is already set in `wrangler.toml`. It is the R2 endpoint host, not a secret.
+`ACCOUNT_ID` is already set in `wrangler.toml`. It is the R2 endpoint host, not a secret. `UPLOAD_TOKEN` is the admin login. It is not an R2 key.
 
-Signing follows junctionBack `r2_media.presign_put`: S3 `put_object`, region `auto`, signature `s3v4`, `ContentType` included. The JSON uses the same names (`object_key`, `upload_url`, `public_url`, `content_type`, `expires_in`).
+Those are the same R2 names junctionBack reads. With the binding present, uploads go to the Worker and the Worker writes `junction-shorts`. If you later want the browser to PUT straight to R2, set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (the same pair as junctionBack) and leave the `SCRAP` binding off. That path signs like `r2_media.presign_put`: S3 `put_object`, region `auto`, signature `s3v4`, `ContentType` included. The JSON uses the same names (`object_key`, `upload_url`, `public_url`, `content_type`, `expires_in`).
 
 | Route | What it does |
 | --- | --- |
 | `POST /admin/login` | Body `{ token }`. Matches `UPLOAD_TOKEN` when that secret is set. |
-| `POST /get-upload-url` | Body `{ key, contentType, kind }`. `kind` is `picture` or `document`. Returns a one-hour presigned `PUT`. |
+| `POST /get-upload-url` | Body `{ key, contentType, kind }`. `kind` is `picture` or `document`. Returns a `PUT` into `junction-shorts`. |
 | `POST /scraps` | Body `{ type, price, pictures[3], documents[1..5] }`. Publishes the card. |
 | `GET /scraps` | Cards for portal 2001. |
 | `GET /scrap-types` | `{ types: ["bikes", ...] }`. |
-| `GET /health` | `{ ok, uploadProtected, bucket, pictures, documents }`. |
+| `PUT /r2/<key>` | Writes one picture or document into `junction-shorts`. |
+| `GET /r2/<key>` | Reads that object back. Public cards use `https://media.junction.monster` instead. |
+| `GET /health` | `{ ok, uploadProtected, bucket, storage, pictures, documents }`. `bucket` is `junction-shorts`. |
 
-Pictures: JPEG, PNG, WebP, GIF, three per scrap. Documents: those images or PDF, up to five. Keys are forced under `2001/…`.
+Pictures: JPEG, PNG, WebP, GIF, three per scrap. Documents: those images or PDF, up to five. Keys are forced under `2001/…` and cannot use the `shorts/` prefix.
 
 ## Portal
 
@@ -67,4 +66,6 @@ npm start
 
 The dev server is `http://localhost:4200`. `portal/src/app/worker-url.ts` points at `http://127.0.0.1:8787` (wrangler dev). Change that constant to the deployed Worker origin before you ship the portal, and add the same origin to `ALLOWED_ORIGIN`.
 
-The worker keeps the catalog in memory for the current process and the portal mirrors it in `localStorage` (`scrap.store.v1`). Picture and document bytes go to the `scrap` bucket once the S3 token is set. Send that token when you have it; it belongs in `worker/.dev.vars` locally and in `wrangler secret put` for deploy, never in the Angular app.
+Picture and document bytes, and the scrap cards, are stored in `junction-shorts`. Card images load from `https://media.junction.monster/2001/…`. The portal also mirrors the card list in `localStorage` (`scrap.store.v1`) so the 2001 page can render if the Worker is briefly unreachable.
+
+The Angular app deploys on Vercel. `vercel.json` installs and builds `portal/` and publishes `portal/dist/portal/browser`, and Angular routes fall back to `index.html`. `https://*.vercel.app` may call the Worker. Point `portal/src/app/worker-url.ts` at the deployed Worker before the Vercel build.
