@@ -71,6 +71,35 @@ describe('R2Service', () => {
     expect(new Headers(calls[1]?.init?.headers).get('content-type')).toBe('image/jpeg');
   });
 
+  it('sends a localhost bucket upload through the same-origin proxy', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (calls.length === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              upload_url: 'http://127.0.0.1:8787/r2/2001/scraps/a.jpg',
+              object_key: '2001/scraps/a.jpg',
+              headers: { 'content-type': 'image/jpeg' },
+              content_type: 'image/jpeg',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 200 }));
+    });
+
+    const service = TestBed.inject(R2Service);
+    const file = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
+    await service.upload(file, 'desk-token');
+
+    expect(calls[0]?.url).toBe('/api/get-upload-url');
+    expect(calls[1]?.url).toBe('/api/r2/2001/scraps/a.jpg');
+    expect(new Headers(calls[1]?.init?.headers).get('authorization')).toBe('Bearer desk-token');
+  });
+
   it('refuses a file that is not an image before calling the worker', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

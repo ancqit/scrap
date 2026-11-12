@@ -65,8 +65,8 @@ npm test
 npm start
 ```
 
-The dev server is `http://localhost:4200`. `portal/src/app/worker-url.ts` points at `http://127.0.0.1:8787` (wrangler dev). Change that constant to the deployed Worker origin before you ship the portal, and add the same origin to `ALLOWED_ORIGIN`.
+The dev server is `http://localhost:4200`. The browser calls `/api` on that same host. `portal/proxy.conf.json` forwards `/api` to wrangler at `http://127.0.0.1:8787`, so the page does not call `127.0.0.1` itself.
 
 Picture and document bytes, and the scrap cards, are stored in `junction-shorts`. Card images load from `https://media.junction.monster/2001/…`. The portal also mirrors the card list in `localStorage` (`scrap.store.v1`) so the 2001 page can render if the Worker is briefly unreachable.
 
-The Angular app deploys on Vercel. `vercel.json` installs and builds `portal/` and publishes `portal/dist/portal/browser`, and Angular routes fall back to `index.html`. `https://*.vercel.app` may call the Worker. Point `portal/src/app/worker-url.ts` at the deployed Worker before the Vercel build.
+The Angular app deploys on Vercel. `vercel.json` installs and builds `portal/` and publishes `portal/dist/portal/browser`. Angular routes fall back to `index.html`. `/api` is forwarded to `https://scrap-r2-presign.ancqit.workers.dev`. Deploy the Worker with `npx wrangler deploy` in the Cloudflare account before that host will answer. `https://*.vercel.app` may call the Worker.
