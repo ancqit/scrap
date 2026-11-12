@@ -14,6 +14,7 @@ import {
   type StoredScrap,
 } from "./catalog";
 import { KeyError, toPublicObjectKey } from "./keys";
+import { s3Bucket } from "./s3-bucket";
 
 export interface Env {
   R2_ACCESS_KEY_ID: string;
@@ -30,6 +31,15 @@ export interface Env {
    * Leave unset only for local wrangler dev. Set it before a public deploy.
    */
   UPLOAD_TOKEN?: string;
+  /** When set, writes are refused until UPLOAD_TOKEN is configured. Used by the public Vercel API. */
+  REQUIRE_UPLOAD_TOKEN?: boolean;
+  /**
+   * Persist the catalog and deletions through the S3 API.
+   * File bytes stay on a presigned PUT so they are not limited by the Vercel body size.
+   */
+  S3_CATALOG?: boolean;
+  /** Test double for the S3 fetch. */
+  S3_FETCH?: typeof fetch;
   /** junctionBack's R2 bucket, `junction-shorts`. Writes and reads go here when the binding is present. */
   SCRAP?: ScrapBucket;
 }
@@ -85,6 +95,9 @@ export default {
       if (error instanceof HttpError) return json({ error: error.message }, error.status, origin);
       if (error instanceof KeyError || error instanceof CatalogError) {
         return json({ error: error.message }, 400, origin);
+      }
+      if (error instanceof Error && error.message.startsWith("R2 rejected")) {
+        return json({ error: error.message }, 502, origin);
       }
       console.error("presign failed");
       return json({ error: "Could not sign the request" }, 500, origin);
@@ -306,10 +319,20 @@ function objectKeyFromPath(path: string): string {
   return key;
 }
 
+function catalogStore(env: Env): ScrapBucket | null {
+  if (env.SCRAP) return env.SCRAP;
+  if (env.S3_CATALOG && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY) return s3Bucket(env, env.S3_FETCH);
+  return null;
+}
+
 async function hydrate(env: Env): Promise<void> {
-  if (!env.SCRAP) return;
-  const object = await env.SCRAP.get(CATALOG_KEY);
-  if (!object) return;
+  const store = catalogStore(env);
+  if (!store) return;
+  const object = await store.get(CATALOG_KEY);
+  if (!object) {
+    replaceCatalog([]);
+    return;
+  }
   let parsed: unknown;
   try {
     parsed = await object.json();
@@ -321,14 +344,16 @@ async function hydrate(env: Env): Promise<void> {
 }
 
 async function deleteStoredFiles(env: Env, scrap: StoredScrap): Promise<void> {
-  if (!env.SCRAP) return;
+  const store = catalogStore(env);
+  if (!store) return;
   const keys = [...scrap.pictures, ...scrap.documents].map((file) => file.objectKey);
-  await Promise.all(keys.map((key) => env.SCRAP?.delete(key)));
+  await Promise.all(keys.map((key) => store.delete(key)));
 }
 
 async function persist(env: Env): Promise<void> {
-  if (!env.SCRAP) return;
-  await env.SCRAP.put(CATALOG_KEY, JSON.stringify(listScraps()), {
+  const store = catalogStore(env);
+  if (!store) return;
+  await store.put(CATALOG_KEY, JSON.stringify(listScraps()), {
     httpMetadata: { contentType: "application/json", cacheControl: "no-store" },
   });
 }
@@ -416,7 +441,10 @@ function assertConfigured(env: Env): void {
 
 function assertUploadToken(request: Request, env: Env): void {
   const expected = env.UPLOAD_TOKEN;
-  if (!expected) return;
+  if (!expected) {
+    if (env.REQUIRE_UPLOAD_TOKEN) throw new HttpError(401, "Upload token is required");
+    return;
+  }
 
   const header = request.headers.get("Authorization") ?? "";
   const match = /^Bearer (\S+)$/.exec(header);

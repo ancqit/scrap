@@ -69,4 +69,4 @@ The dev server is `http://localhost:4200`. The browser calls `/api` on that same
 
 Picture and document bytes, and the scrap cards, are stored in `junction-shorts`. Card images load from `https://media.junction.monster/2001/…`. The portal also mirrors the card list in `localStorage` (`scrap.store.v1`) so the 2001 page can render if the Worker is briefly unreachable.
 
-The Angular app deploys on Vercel. `vercel.json` installs and builds `portal/` and publishes `portal/dist/portal/browser`. Angular routes fall back to `index.html`. `/api` is forwarded to `https://scrap-r2-presign.ancqit.workers.dev`. Deploy the Worker with `npx wrangler deploy` in the Cloudflare account before that host will answer. `https://*.vercel.app` may call the Worker.
+The Angular app deploys on Vercel. `vercel.json` installs and builds `portal/` and publishes `portal/dist/portal/browser`. Angular routes fall back to `index.html`. `/api` runs the same worker on Vercel and writes to `junction-shorts` through the R2 S3 API. On the Vercel project, set `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `UPLOAD_TOKEN` to the same values junctionBack uses. `https://*.vercel.app` may call that API.

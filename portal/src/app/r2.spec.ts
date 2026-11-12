@@ -4,6 +4,15 @@ import { R2Service } from './r2';
 import { WORKER_URL } from './worker-url';
 
 describe('R2Service', () => {
+  it('shows the worker error when the bucket response is plain text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      () => Promise.resolve(new Response('error code: 1042', { status: 404, headers: { 'content-type': 'text/plain' } })),
+    );
+    const service = TestBed.inject(R2Service);
+    await expect(service.login('2001')).rejects.toThrow('error code: 1042');
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

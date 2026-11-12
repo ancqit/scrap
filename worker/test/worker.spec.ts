@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { clearCatalog } from "../src/catalog";
 import worker, { type Env } from "../src/index";
+import { rewriteApiRequest, workerEnv } from "../src/vercel-env";
 
 const env: Env = {
   R2_ACCESS_KEY_ID: "test-access-key",
@@ -378,6 +379,80 @@ describe("presign worker", () => {
     expect(object.status).toBe(404);
     const listed = await worker.fetch(new Request("https://worker.test/scraps"), bound);
     expect(await listed.json()).toEqual({ scraps: [] });
+  });
+
+  it("serves /api on the same host and keeps the catalog in the bucket", async () => {
+    const login = await worker.fetch(
+      rewriteApiRequest(
+        new Request("https://scrap.vercel.app/api/admin/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: "2001" }),
+        }),
+      ),
+      workerEnv({}),
+    );
+    expect(login.status).toBe(200);
+    expect(await login.json()).toEqual({ ok: true, role: "slave" });
+
+    const missing = await worker.fetch(new Request("https://scrap.vercel.app/scraps"), workerEnv({}));
+    expect(missing.status).toBe(500);
+    expect(await missing.json()).toEqual({ error: "R2 credentials are not configured" });
+
+    const objects = new Map<string, { data: Uint8Array; type: string }>();
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const key = decodeURIComponent(new URL(request.url).pathname.replace(/^\/junction-shorts\//, ""));
+      if (request.method === "PUT") {
+        objects.set(key, {
+          data: new Uint8Array(await request.arrayBuffer()),
+          type: request.headers.get("content-type") ?? "",
+        });
+        return new Response(null, { status: 200 });
+      }
+      if (request.method === "GET") {
+        const hit = objects.get(key);
+        if (!hit) return new Response("missing", { status: 404 });
+        return new Response(hit.data, { status: 200, headers: { "content-type": hit.type } });
+      }
+      if (request.method === "DELETE") {
+        objects.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      return new Response("no", { status: 405 });
+    };
+
+    const bound = workerEnv({
+      R2_ACCESS_KEY_ID: "test-access-key",
+      R2_SECRET_ACCESS_KEY: "test-secret-value",
+      UPLOAD_TOKEN: "desk-token",
+    });
+    bound.S3_FETCH = fetchImpl;
+
+    const created = await worker.fetch(
+      rewriteApiRequest(
+        new Request("https://scrap.vercel.app/api/scraps", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: "Bearer desk-token" },
+          body: JSON.stringify({
+            type: "bikes",
+            price: 18500,
+            pictures: [file("one.jpg")],
+            documents: [],
+          }),
+        }),
+      ),
+      bound,
+    );
+    expect(created.status).toBe(201);
+    clearCatalog();
+
+    const listed = await worker.fetch(rewriteApiRequest(new Request("https://scrap.vercel.app/api/scraps")), bound);
+    const catalog = (await listed.json()) as { scraps: { type: string; price: number; pictures: { url: string }[] }[] };
+    expect(catalog.scraps[0]?.type).toBe("bikes");
+    expect(catalog.scraps[0]?.price).toBe(18500);
+    expect(catalog.scraps[0]?.pictures[0]?.url).toBe("https://media.junction.monster/2001/scraps/one.jpg");
+    expect(objects.has("2001/catalog.json")).toBe(true);
   });
 });
 
