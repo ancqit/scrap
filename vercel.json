@@ -1,18 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm install --prefix portal && npm install --prefix worker",
-  "buildCommand": "npm run build --prefix portal",
-  "outputDirectory": "portal/dist/portal/browser",
-  "framework": null,
-  "functions": {
-    "api/**/*.ts": {
-      "maxDuration": 30
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/((?!api/)(?!.*\\.).*)",
-      "destination": "/index.html"
-    }
-  ]
+  "buildCommand": "npm run build --prefix portal && node scripts/vercel-output.mjs",
+  "framework": null
 }
