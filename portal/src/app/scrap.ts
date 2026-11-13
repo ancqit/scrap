@@ -34,7 +34,7 @@ export class ScrapStore {
       this.scraps.set(items);
       this.persist();
     } catch {
-      // Keep the last catalog when the worker is down.
+      // Keep the last catalog when herback is down.
     }
   }
 

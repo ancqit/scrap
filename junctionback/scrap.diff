@@ -1,0 +1,424 @@
+diff --git a/.env.example b/.env.example
+index b7bab2c..af3237c 100644
+--- a/.env.example
++++ b/.env.example
+@@ -19,6 +19,8 @@ OTP_EXPIRE_MINUTES=5
+ # R2_ENDPOINT=https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
+ # R2_SIGN_EXPIRES_SECONDS=600
+ # R2_CACHE_CONTROL=public, max-age=31536000, immutable
++# Scrap portal admin password. 2001 stays the read-only login. Not an R2 key.
++# UPLOAD_TOKEN=
+ # Also add a Cloudflare Cache Rule on media.junction.monster for /shorts/* → Cache Everything.
+ # Cloudflare Stream (optional ABR). Default video upload is R2 PUT — set STREAM_PREFERRED=1
+ # only when you want Direct Creator Upload → HLS. Stream-first broke some CF proxies.
+diff --git a/app/main.py b/app/main.py
+index 40ba5f2..015c4eb 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -48,6 +48,7 @@ from .internal_jobs import router as internal_jobs_router
+ from .earth_waste import router as earth_waste_router
+ from .home_trash import router as home_trash_router
+ from .junction_id import router as junction_id_router
++from .scrap_portal import router as scrap_portal_router
+ 
+ _openapi_enabled = os.getenv("OPENAPI_ENABLED", "true").lower() in {"1", "true", "yes"}
+ 
+@@ -139,6 +140,7 @@ _routers = (
+     earth_waste_router,
+     home_trash_router,
+     junction_id_router,
++    scrap_portal_router,
+ )
+ for _router in _routers:
+     app.include_router(_router)
+diff --git a/app/r2_media.py b/app/r2_media.py
+index b5c9128..32febed 100644
+--- a/app/r2_media.py
++++ b/app/r2_media.py
+@@ -10,6 +10,7 @@ from typing import Literal
+ 
+ import boto3
+ from botocore.client import Config
++from botocore.exceptions import ClientError
+ from fastapi import HTTPException, status
+ 
+ MediaKind = Literal["video", "audio", "poster"]
+@@ -231,6 +232,40 @@ def presign_put(*, kind: MediaKind, content_type: str, filename: str = "") -> di
+     }
+ 
+ 
++def read_object(key: str) -> bytes | None:
++    """Read any bucket key. Missing objects return None. Scrap catalog uses this."""
++    require_r2()
++    try:
++        response = _client().get_object(Bucket=R2_BUCKET, Key=key)
++    except ClientError as exc:
++        code = str(exc.response.get("Error", {}).get("Code", ""))
++        status_code = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
++        if status_code == 404 or code in {"NoSuchKey", "404", "NotFound"}:
++            return None
++        raise
++    return response["Body"].read()
++
++
++def write_object(key: str, body: bytes, *, content_type: str, cache_control: str | None = None) -> None:
++    require_r2()
++    _client().put_object(
++        Bucket=R2_BUCKET,
++        Key=key,
++        Body=body,
++        ContentType=content_type,
++        CacheControl=cache_control or R2_CACHE_CONTROL,
++    )
++
++
++def presign_put_key(key: str, content_type: str) -> str:
++    require_r2()
++    return _client().generate_presigned_url(
++        "put_object",
++        Params={"Bucket": R2_BUCKET, "Key": key, "ContentType": content_type},
++        ExpiresIn=R2_SIGN_EXPIRES_SECONDS,
++    )
++
++
+ def delete_object(object_key: str | None) -> None:
+     key = (object_key or "").strip()
+     if not key or not r2_configured():
+diff --git a/app/scrap_portal.py b/app/scrap_portal.py
+new file mode 100644
+index 0000000..aea6a15
+--- /dev/null
++++ b/app/scrap_portal.py
+@@ -0,0 +1,222 @@
++"""Scrap cards in the same R2 bucket junctionBack already uses.
++
++Pictures, documents, and the card list live under ``2001/``. Shorts stay under
++``shorts/``. Credentials are the existing ``R2_*`` environment variables.
++"""
++
++from __future__ import annotations
++
++import hmac
++import json
++import os
++import re
++import uuid
++from datetime import datetime, timezone
++
++from fastapi import APIRouter, Body, HTTPException, Request, Response, status
++
++from . import r2_media
++
++router = APIRouter(prefix="/scrap", tags=["scrap"])
++
++CATALOG_KEY = "2001/catalog.json"
++SLAVE = "2001"
++PICTURE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
++DOCUMENT_TYPES = PICTURE_TYPES | {"application/pdf"}
++SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
++TYPE_PATTERN = re.compile(r"^[\w]+(?:[ '\-][\w]+)*$", re.UNICODE)
++
++
++def _token() -> str:
++    return (os.getenv("UPLOAD_TOKEN") or "").strip()
++
++
++def _same(left: str, right: str) -> bool:
++    return hmac.compare_digest(left.encode(), right.encode())
++
++
++def _role(token: str) -> str | None:
++    if _same(token, SLAVE):
++        return "slave"
++    expected = _token()
++    if expected and _same(token, expected):
++        return "admin"
++    return None
++
++
++def _bearer(request: Request) -> str:
++    header = request.headers.get("authorization") or ""
++    match = re.fullmatch(r"Bearer (\S+)", header.strip())
++    return match.group(1) if match else ""
++
++
++def _require_admin(request: Request) -> None:
++    if _role(_bearer(request)) != "admin":
++        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Upload token is required")
++
++
++def _public_key(raw: object) -> str:
++    if not isinstance(raw, str):
++        raise HTTPException(status_code=400, detail="invalid key")
++    parts = [part for part in raw.strip().replace("\\", "/").split("/") if part]
++    if not parts or len(parts) > 16:
++        raise HTTPException(status_code=400, detail="invalid key")
++    if any(part in {".", ".."} or not SEGMENT.match(part) for part in parts):
++        raise HTTPException(status_code=400, detail="invalid key")
++    if parts[0] == "shorts":
++        raise HTTPException(status_code=400, detail="invalid key")
++    if parts[0] == "1001":
++        parts[0] = SLAVE
++    elif parts[0] != SLAVE:
++        parts.insert(0, SLAVE)
++    key = "/".join(parts)
++    if key == CATALOG_KEY:
++        raise HTTPException(status_code=400, detail="invalid key")
++    return key
++
++
++def _load() -> list[dict]:
++    r2_media.require_r2()
++    raw = r2_media.read_object(CATALOG_KEY)
++    if not raw:
++        return []
++    try:
++        parsed = json.loads(raw)
++    except json.JSONDecodeError:
++        return []
++    if not isinstance(parsed, list):
++        return []
++    return [item for item in parsed if isinstance(item, dict)]
++
++
++def _save(scraps: list[dict]) -> None:
++    r2_media.write_object(
++        CATALOG_KEY,
++        json.dumps(scraps).encode(),
++        content_type="application/json",
++        cache_control="no-store",
++    )
++
++
++def _files(raw: object, label: str, limit: int) -> list[dict]:
++    if not isinstance(raw, list) or len(raw) > limit:
++        raise HTTPException(status_code=400, detail=f"A scrap can have at most {limit} {label}")
++    allowed = DOCUMENT_TYPES if label == "documents" else PICTURE_TYPES
++    files: list[dict] = []
++    for entry in raw:
++        if not isinstance(entry, dict):
++            raise HTTPException(status_code=400, detail="Each file needs an object key")
++        key = _public_key(entry.get("object_key") or entry.get("objectKey") or entry.get("key"))
++        content_type = str(entry.get("content_type") or entry.get("contentType") or "").split(";")[0].strip().lower()
++        if content_type not in allowed:
++            message = "A document must be a PDF or an image" if label == "documents" else "A picture must be an image"
++            raise HTTPException(status_code=400, detail=message)
++        filename = str(entry.get("filename") or "file").split("/")[-1].split("\\")[-1].strip()[:80] or "file"
++        files.append(
++            {
++                "object_key": key,
++                "url": r2_media.public_url(key),
++                "content_type": content_type,
++                "filename": filename,
++            }
++        )
++    return files
++
++
++@router.post("/login")
++def login(body: dict = Body(...)) -> dict:
++    token = body.get("token") if isinstance(body, dict) else None
++    token = token.strip() if isinstance(token, str) else ""
++    if not token:
++        raise HTTPException(status_code=400, detail="Login is required")
++    role = _role(token)
++    if not role:
++        raise HTTPException(status_code=401, detail="Login failed")
++    return {"ok": True, "role": role}
++
++
++@router.get("/types")
++def types() -> dict:
++    scraps = _load()
++    names = []
++    for scrap in scraps:
++        name = scrap.get("type")
++        if isinstance(name, str) and name and name != "bikes":
++            names.append(name)
++    return {"types": ["bikes", *dict.fromkeys(names)]}
++
++
++@router.get("/scraps")
++def list_scraps() -> dict:
++    return {"scraps": _load()}
++
++
++@router.post("/get-upload-url")
++def upload_url(request: Request, body: dict = Body(...)) -> dict:
++    _require_admin(request)
++    r2_media.require_r2()
++    kind = body.get("kind") if isinstance(body, dict) else None
++    if kind not in {"picture", "document"}:
++        kind = "picture"
++    content_type = str(body.get("contentType") or body.get("content_type") or "").split(";")[0].strip().lower()
++    allowed = DOCUMENT_TYPES if kind == "document" else PICTURE_TYPES
++    if content_type not in allowed:
++        message = "Documents must be PDF, JPEG, PNG, WebP, or GIF" if kind == "document" else "Pictures must be JPEG, PNG, WebP, or GIF"
++        raise HTTPException(status_code=400, detail=message)
++    key = _public_key(body.get("key"))
++    url = r2_media.presign_put_key(key, content_type)
++    return {
++        "upload_url": url,
++        "url": url,
++        "object_key": key,
++        "key": key,
++        "content_type": content_type,
++        "headers": {"content-type": content_type},
++        "method": "PUT",
++    }
++
++
++@router.post("/scraps", status_code=status.HTTP_201_CREATED)
++def create_scrap(request: Request, body: dict = Body(...)) -> dict:
++    _require_admin(request)
++    if not isinstance(body, dict):
++        raise HTTPException(status_code=400, detail="Expected JSON object")
++    scrap_type = body.get("type")
++    if not isinstance(scrap_type, str) or not TYPE_PATTERN.match(scrap_type.strip()) or not 2 <= len(scrap_type.strip()) <= 40:
++        raise HTTPException(status_code=400, detail="Scrap type must be a short name such as bikes")
++    price = body.get("price")
++    if isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0 or price > 100_000_000:
++        raise HTTPException(status_code=400, detail="Price must be a number from 0 up")
++    pictures = _files(body.get("pictures") or [], "pictures", 3)
++    documents = _files(body.get("documents") or [], "documents", 5)
++    if not pictures and not documents:
++        raise HTTPException(status_code=400, detail="Add scrap pictures or documents")
++    scrap = {
++        "id": uuid.uuid4().hex,
++        "type": scrap_type.strip(),
++        "price": round(float(price), 2),
++        "currency": "INR",
++        "portal": SLAVE,
++        "pictures": pictures,
++        "documents": documents,
++        "created_at": datetime.now(timezone.utc).isoformat(),
++    }
++    scraps = _load()
++    scraps.insert(0, scrap)
++    _save(scraps)
++    return {"scrap": scrap}
++
++
++@router.delete("/scraps/{scrap_id}", status_code=status.HTTP_204_NO_CONTENT)
++def delete_scrap(scrap_id: str, request: Request) -> Response:
++    _require_admin(request)
++    scraps = _load()
++    found = next((scrap for scrap in scraps if scrap.get("id") == scrap_id), None)
++    if found is None:
++        raise HTTPException(status_code=404, detail="Scrap not found")
++    for group in ("pictures", "documents"):
++        for item in found.get(group) or []:
++            if isinstance(item, dict) and isinstance(item.get("object_key"), str):
++                r2_media.delete_object(item["object_key"])
++    _save([scrap for scrap in scraps if scrap.get("id") != scrap_id])
++    return Response(status_code=status.HTTP_204_NO_CONTENT)
+diff --git a/tests/test_scrap_portal.py b/tests/test_scrap_portal.py
+new file mode 100644
+index 0000000..a3a4180
+--- /dev/null
++++ b/tests/test_scrap_portal.py
+@@ -0,0 +1,104 @@
++"""Scrap portal stores cards in the existing R2 bucket. No network."""
++
++from fastapi.testclient import TestClient
++
++from app.main import app
++
++client = TestClient(app)
++
++
++class Bucket:
++    def __init__(self) -> None:
++        self.objects: dict[str, bytes] = {}
++        self.signed: list[str] = []
++
++    def read_object(self, key: str) -> bytes | None:
++        return self.objects.get(key)
++
++    def write_object(self, key: str, body: bytes, **_kwargs) -> None:
++        self.objects[key] = body
++
++    def delete_object(self, key: str | None) -> None:
++        if key:
++            self.objects.pop(key, None)
++
++    def presign_put_key(self, key: str, content_type: str) -> str:
++        self.signed.append(f"{key}:{content_type}")
++        return f"https://example.r2.cloudflarestorage.com/{key}"
++
++    def public_url(self, key: str) -> str:
++        return f"https://media.junction.monster/{key}"
++
++    def require_r2(self) -> None:
++        return None
++
++
++def _install(monkeypatch, token: str = "desk-token") -> Bucket:
++    bucket = Bucket()
++    monkeypatch.setenv("UPLOAD_TOKEN", token)
++    monkeypatch.setattr("app.scrap_portal.r2_media.read_object", bucket.read_object)
++    monkeypatch.setattr("app.scrap_portal.r2_media.write_object", bucket.write_object)
++    monkeypatch.setattr("app.scrap_portal.r2_media.delete_object", bucket.delete_object)
++    monkeypatch.setattr("app.scrap_portal.r2_media.presign_put_key", bucket.presign_put_key)
++    monkeypatch.setattr("app.scrap_portal.r2_media.public_url", bucket.public_url)
++    monkeypatch.setattr("app.scrap_portal.r2_media.require_r2", bucket.require_r2)
++    return bucket
++
++
++def test_slave_login_and_admin_login(monkeypatch):
++    _install(monkeypatch)
++    slave = client.post("/scrap/login", json={"token": "2001"})
++    assert slave.status_code == 200
++    assert slave.json() == {"ok": True, "role": "slave"}
++    admin = client.post("/scrap/login", json={"token": "desk-token"})
++    assert admin.status_code == 200
++    assert admin.json()["role"] == "admin"
++    assert client.post("/scrap/login", json={"token": "nope"}).status_code == 401
++
++
++def test_creates_lists_and_deletes_a_scrap_in_the_bucket(monkeypatch):
++    bucket = _install(monkeypatch)
++    headers = {"Authorization": "Bearer desk-token"}
++    signed = client.post(
++        "/scrap/get-upload-url",
++        json={"key": "scraps/one.jpg", "contentType": "image/jpeg", "kind": "picture"},
++        headers=headers,
++    )
++    assert signed.status_code == 200
++    body = signed.json()
++    assert body["object_key"] == "2001/scraps/one.jpg"
++    assert body["upload_url"].endswith("/2001/scraps/one.jpg")
++    assert "1001" not in signed.text
++
++    created = client.post(
++        "/scrap/scraps",
++        json={
++            "type": "bikes",
++            "price": 18500,
++            "pictures": [{"object_key": "scraps/one.jpg", "content_type": "image/jpeg", "filename": "one.jpg"}],
++            "documents": [],
++        },
++        headers=headers,
++    )
++    assert created.status_code == 201
++    scrap = created.json()["scrap"]
++    assert scrap["portal"] == "2001"
++    assert scrap["price"] == 18500
++    assert scrap["pictures"][0]["url"] == "https://media.junction.monster/2001/scraps/one.jpg"
++    assert "2001/catalog.json" in bucket.objects
++
++    listed = client.get("/scrap/scraps")
++    assert listed.status_code == 200
++    assert listed.json()["scraps"][0]["type"] == "bikes"
++    assert client.get("/scrap/types").json() == {"types": ["bikes"]}
++
++    empty = client.post(
++        "/scrap/scraps",
++        json={"type": "bikes", "price": 1, "pictures": [], "documents": []},
++        headers=headers,
++    )
++    assert empty.status_code == 400
++
++    removed = client.delete(f"/scrap/scraps/{scrap['id']}", headers=headers)
++    assert removed.status_code == 204
++    assert client.get("/scrap/scraps").json() == {"scraps": []}

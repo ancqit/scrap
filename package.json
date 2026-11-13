@@ -1,8 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "test": "npm test --prefix worker && npm test --prefix portal",
-    "start": "npm start --prefix portal",
-    "dev:worker": "npm run dev --prefix worker"
+    "test": "npm test --prefix portal",
+    "start": "npm start --prefix portal"
   }
 }
