@@ -17,7 +17,7 @@ describe('R2Service', () => {
     vi.unstubAllGlobals();
   });
 
-  it('asks junctionBack for a signed url and puts the file straight to that url', async () => {
+  it('asks herback for a signed url and puts the file straight to that url', async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
       calls.push({ url, init });
@@ -109,7 +109,7 @@ describe('R2Service', () => {
     expect(new Headers(calls[1]?.init?.headers).get('authorization')).toBe('Bearer desk-token');
   });
 
-  it('refuses a file that is not an image before calling junctionBack', async () => {
+  it('refuses a file that is not an image before calling herback', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const service = TestBed.inject(R2Service);

@@ -1,6 +1,6 @@
 {
   "/api": {
-    "target": "https://junctionback.onrender.com",
+    "target": "https://herback.onrender.com",
     "secure": true,
     "changeOrigin": true,
     "pathRewrite": {

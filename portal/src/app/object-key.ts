@@ -12,7 +12,7 @@ export function isAllowedDocument(contentType: string): boolean {
   return DOCUMENT_TYPES.has(contentType);
 }
 
-/** Relative key. junctionBack prefixes the slave portal before it signs. */
+/** Relative key. herback prefixes the slave portal before it signs. */
 export function scrapFileKey(
   kind: 'pictures' | 'documents',
   slot: number,

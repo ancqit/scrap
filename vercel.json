@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://junctionback.onrender.com/$1"
+      "destination": "https://herback.onrender.com/$1"
     },
     {
       "source": "/((?!.*\\.).*)",
