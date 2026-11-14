@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { SLAVE_PORTAL } from './portal-number';
 import { R2Service } from './r2';
 import { Scrap, ScrapStore } from './scrap';
+import { SlavePage } from './slave-page';
 
 const picture = {
   objectKey: '2001/scraps/1/pictures/1-tag.jpg',
@@ -43,5 +44,28 @@ describe('ScrapStore', () => {
 
     const saved = JSON.parse(localStorage.getItem('scrap.store.v1') ?? '[]') as Scrap[];
     expect(saved.map((item) => item.id)).toEqual(['3']);
+  });
+
+  it('opens the cards with one list call', async () => {
+    let calls = 0;
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: R2Service,
+          useValue: {
+            listScraps: async () => {
+              calls += 1;
+              return [];
+            },
+          },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(SlavePage);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await Promise.resolve();
+    expect(calls).toBe(1);
   });
 });
