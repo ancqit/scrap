@@ -21,5 +21,8 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Log in');
     expect(compiled.querySelector('nav')?.textContent).not.toContain('Admin');
     expect(compiled.textContent).not.toContain('1001');
+    expect(compiled.querySelector('footer.copyright')?.textContent).toBe(
+      '© 2026 Sunskriti Data management company',
+    );
   });
 });
