@@ -15,7 +15,7 @@ npm test
 npm start
 ```
 
-The dev server is `http://localhost:4200`. The browser calls `/api` on that same host. `portal/proxy.conf.json` forwards `/api` to `https://herback.onrender.com`.
+The dev server is `http://localhost:4200`. The browser calls `/api` on that same host. `portal/proxy.conf.json` forwards `/api` to `https://herback-1.onrender.com`.
 
 The Angular app deploys on Vercel the same way. `vercel.json` publishes `portal/dist/portal/browser`, sends `/api` to herback, and falls back to `index.html` for Angular routes.
 
